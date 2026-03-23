@@ -1,2 +1,2 @@
 # cs7180-final-project
-We would like to train a generative VLA (Vision-Language-Action model) on a robotic manipulation task.
+This repository contains code and data for the CS7180 final project.

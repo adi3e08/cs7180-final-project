@@ -1,11 +1,12 @@
 import argparse
 import torch
 import sys
+from metaworld.policies.sawyer_reach_v3_policy import SawyerReachV3Policy
 sys.path.append('/content/cs7180-final-project')
 sys.path.append('/content/cs7180-final-project/utils')
 sys.path.append('/content/cs7180-final-project/models')
 sys.path.append('/content/cs7180-final-project/results/checkpoints/')
-from utils.data_process import load_data
+from utils.data_process import load_data, collect_expert_demos
 from models.policy import VectorFieldUNetCFG
 import os
 from tqdm import tqdm
@@ -70,6 +71,10 @@ def main():
 
     # Save final model
     torch.save(model.state_dict(), os.path.join(args.save_path, "model_final.pt"))
+    
+def emain():
+    args = parse_args()
+    collect_expert_demos("reach-v3", SawyerReachV3Policy, num_episodes=10)
 
 if __name__ == "__main__":
-    main()
+    emain()

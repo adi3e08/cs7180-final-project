@@ -62,14 +62,14 @@ class VectorFieldUNetCFG(nn.Module):
         """
         te = self.t_emb(t)                   # (B, tc)
         ce  = self.c_proj(self.class_emb(c))
+        # element-wise addition
         cond = te + ce   # additive fusion  ← key line
-        x0  = self.in_conv(x)                # (B, 64, 28, 28)
-        e1  = self.enc1(x0, te)              # (B, 128, 28, 28)
-        e2  = self.enc2(self.down1(e1), te)  # (B, 256, 14, 14)
-        m   = self.mid2(self.mid1(self.down2(e2), te), te)  # (B, 256, 7, 7)
-
-        d1  = self.dec1(torch.cat([self.up1(m), e2], dim=1), te)   # (B, 128, 14, 14)
-        d2  = self.dec2(torch.cat([self.up2(d1), e1], dim=1), te)  # (B, 64, 28, 28)
+        x0  = self.in_conv(x)
+        e1  = self.enc1(x0, cond)
+        e2  = self.enc2(self.down1(e1), cond)
+        m   = self.mid2(self.mid1(self.down2(e2), cond), cond)
+        d1  = self.dec1(torch.cat([self.up1(m), e2], dim=1), cond)
+        d2  = self.dec2(torch.cat([self.up2(d1), e1], dim=1), cond)
         return self.out(d2) 
     
     def flow_matching_loss_cfg(self, x1, labels) -> torch.Tensor:

@@ -6,17 +6,41 @@ from PIL import Image
 import os
 import random
 import shutil
+import torch
 
-class DictDataset(Dataset):
-    def __init__(self, data_list):
-        self.data = data_list
+class MetaWorldDataset(Dataset):
+    def __init__(self, data_dir):
+        self.samples = []
+        demo_files = sorted([f for f in os.listdir(data_dir) 
+                            if f.endswith(".npz")])
+        for file in demo_files:
+            data = np.load(os.path.join(data_dir, file), allow_pickle=True)
+            T = len(data["actions"])
+            text = str(data["text"])
+            for t in range(T):
+                self.samples.append({
+                    "top_view": data["top_view"][t],           # (224, 224, 3)
+                    "gripper_pov": data["gripper_pov"][t],     
+                    "behind_gripper": data["behind_gripper"][t],
+                    "proprioception": data["proprioception"][t],  # (4,)
+                    "action": data["actions"][t],                 # (4,)
+                    "text": text,
+                })
+        print(f"Loaded {len(self.samples)} timesteps from {len(demo_files)} episodes")
 
     def __len__(self):
-        return len(self.data)
+        return len(self.samples)
 
     def __getitem__(self, idx):
-        item = self.data[idx]
-        return item 
+        s = self.samples[idx]
+        return {
+            "top_view": torch.FloatTensor(s["top_view"]).permute(2, 0, 1) / 255.0,
+            "gripper_pov": torch.FloatTensor(s["gripper_pov"]).permute(2, 0, 1) / 255.0,
+            "behind_gripper": torch.FloatTensor(s["behind_gripper"]).permute(2, 0, 1) / 255.0,
+            "proprioception": torch.FloatTensor(s["proprioception"]),
+            "action": torch.FloatTensor(s["action"]),
+            "text": s["text"],
+        }
     
 def resize_frame(frame, size=(224, 224)):
     return np.array(Image.fromarray(frame).resize(size))
@@ -119,39 +143,10 @@ def collect_expert_demos(env_name, policy_class, num_episodes=10, max_steps=500,
 
     print(f"Train: {len(train_files)} episodes, Test: {len(test_files)} episodes")
 
-# def load_data(BATCH, DEVICE):
-    
-#     tfm = transforms.Compose([
-#         transforms.ToTensor(),
-#         transforms.Normalize((0.5,), (0.5,))  
-#     ])
-
-#     train_ds = datasets.MNIST(root="data", train=True,  download=True, transform=tfm)
-#     val_ds   = datasets.MNIST(root="data", train=False, download=True, transform=tfm)
-
-#     train_loader = DataLoader(train_ds, batch_size=BATCH, shuffle=True,  num_workers=2, pin_memory=True)
-#     val_loader   = DataLoader(val_ds,   batch_size=BATCH, shuffle=False, num_workers=2, pin_memory=True)
-#     print(f"Train: {len(train_ds)} | Val: {len(val_ds)} | Device: {DEVICE}")
-#     return train_loader, val_loader
-
-def load_data(BATCH, DEVICE):
-    data_dir = "/content/cs7180-final-project/data"
-    demo_files = [f for f in os.listdir(data_dir) if f.startswith("demo_") and f.endswith(".npz")]
-    trajectories = []
-    for file in demo_files:
-        data = np.load(os.path.join(data_dir, file), allow_pickle=True)
-        trajectories.append({
-            "proprioception": data["proprioception"],
-            "actions": data["actions"],
-            "rewards": data["rewards"],
-            "top_view": data["top_view"],
-            "gripper_pov": data["gripper_pov"],
-            "behind_gripper": data["behind_gripper"],
-            "text": data["text"].item(),
-            "success": data["success"].item(),
-        })
-    print(f"Loaded {len(trajectories)} trajectories from {data_dir}")
-    dataset = DictDataset(trajectories)
-    loader = DataLoader(dataset, batch_size=2, shuffle=True)
-    return trajectories
+def load_data(batch_size):
+    train_dataset = MetaWorldDataset("/content/cs7180-final-project/data/train")
+    test_dataset = MetaWorldDataset("/content/cs7180-final-project/data/test")
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    return train_loader, test_loader
 

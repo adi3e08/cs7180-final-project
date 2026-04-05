@@ -1,16 +1,14 @@
 import argparse
-from models.encoders import StateEncoderMLP
 import torch
 import sys
 from metaworld.policies.sawyer_reach_v3_policy import SawyerReachV3Policy
 sys.path.append('/content/cs7180-final-project')
 sys.path.append('/content/cs7180-final-project/utils')
-sys.path.append('/content/cs7180-final-project/models')
+sys.path.append('/content/cs7180-final-project/models/')
 sys.path.append('/content/cs7180-final-project/results/checkpoints/')
 from utils.data_process import load_data, collect_expert_demos
-from models.policy import VectorFieldUNetCFG
-from models.fusion import VLAFlowMatching
-from models.encoders import ImageEncoderTinyCNN, TextEncoderTinyGRU
+from models.policy import VLAFlowMatching
+from models.encoders import ImageEncoderTinyCNN, TextEncoderTinyGRU, StateEncoderMLP
 import os
 from tqdm import tqdm
 
@@ -33,51 +31,51 @@ def parse_args():
 def main():
     args = parse_args()
     model = VLAFlowMatching(
-    img_encoder   = ImageEncoderTinyCNN(d_model=128),
-    txt_encoder   = TextEncoderTinyGRU(vocab_size = 128, d_model=128),
-    state_encoder = StateEncoderMLP(state_dim=4, d_model=128),
-    )
-    # model = VectorFieldUNetCFG(img_ch=1, base_ch=64, t_dim=128, NUM_CLASSES=10, DROP_PROB=0.1).to(args.device)
-    train_loader, val_loader = load_data(args.batch_size, args.device)
+        img_encoder   = ImageEncoderTinyCNN(d_model=128),
+        txt_encoder   = TextEncoderTinyGRU(vocab_size=128, d_model=128),
+        state_encoder = StateEncoderMLP(state_dim=4, d_model=128),
+    ).to(args.device)
 
+    train_loader, val_loader = load_data(args.batch_size)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)
-
     train_losses, val_losses = [], []
 
     for epoch in range(1, args.epochs + 1):
-
-        # ── Training ──────────────────────────────────────────────────────
         model.train()
-        epoch_loss = 0.0
-        for x1, labels in tqdm(train_loader, leave=False, desc=f"Epoch {epoch}"):
-            x1, labels = x1.to(args.device), labels.to(args.device)
-            loss = model.flow_matching_loss_cfg(x1, labels)
+        train_loss = 0.0
+        for batch in tqdm(train_loader, leave=False, desc=f"Epoch {epoch}"):
+            x1    = batch["action"].to(args.device)
+            img   = batch["top_view"].to(args.device)
+            text  = batch["text"].to(args.device)
+            state = batch["proprioception"].to(args.device)
+
+            loss = model.flow_matching_loss_vla(x1, img, text, state)
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)  # stability
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
-            epoch_loss += loss.item()
+            train_loss += loss.item()
 
-        train_losses.append(epoch_loss / len(train_loader))
+        train_losses.append(train_loss / len(train_loader))
         scheduler.step()
 
-        # ── Validation ────────────────────────────────────────────────────
         model.eval()
-        v_loss = 0.0
+        val_loss = 0.0
         with torch.no_grad():
-            for x1, labels in val_loader:
-                x1, labels = x1.to(args.device), labels.to(args.device)
-                v_loss += model.flow_matching_loss_cfg(x1, labels).item()
-        val_losses.append(v_loss / len(val_loader))
+            for batch in val_loader:
+                x1    = batch["action"].to(args.device)
+                img   = batch["top_view"].to(args.device)
+                text  = batch["text"].to(args.device)
+                state = batch["proprioception"].to(args.device)
+                val_loss += model.flow_matching_loss_vla(x1, img, text, state).item()
 
+        val_losses.append(val_loss / len(val_loader))
         print(f"Epoch {epoch:3d} | Train: {train_losses[-1]:.4f} | Val: {val_losses[-1]:.4f}")
 
-        # Save checkpoint every 5 epochs
         if epoch % 5 == 0:
             torch.save(model.state_dict(), os.path.join(args.save_path, f"ckpt_ep{epoch}.pt"))
 
-    # Save final model
     torch.save(model.state_dict(), os.path.join(args.save_path, "model_final.pt"))
     
 def emain():

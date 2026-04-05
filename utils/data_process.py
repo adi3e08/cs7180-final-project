@@ -2,7 +2,7 @@ from torchvision import datasets, transforms
 from torch.utils.data import DataLoader
 import gymnasium as gym
 import numpy as np
-from pil import Image
+from PIL import Image
 import os
 
 def resize_frame(frame, size=(224, 224)):

@@ -7,6 +7,7 @@ sys.path.append('/content/cs7180-final-project/models')
 sys.path.append('/content/cs7180-final-project/results/checkpoints/')
 from utils.data_process import load_data
 from models.policy import VectorFieldUNetCFG
+import os
 from tqdm import tqdm
 
 def parse_args():
@@ -65,11 +66,10 @@ def main():
 
         # Save checkpoint every 5 epochs
         if epoch % 5 == 0:
-            torch.save(model.state_dict(), f"{args.save_path}ckpt_ep{epoch}.pt")
+            torch.save(model.state_dict(), os.path.join(args.save_path, f"ckpt_ep{epoch}.pt"))
 
     # Save final model
-    torch.save(model.state_dict(), f"{args.save_path}model_final.pt")
-
+    torch.save(model.state_dict(), os.path.join(args.save_path, "model_final.pt"))
 
 if __name__ == "__main__":
     main()

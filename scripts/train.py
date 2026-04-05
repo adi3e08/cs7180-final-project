@@ -4,7 +4,7 @@ import sys
 sys.path.append('/content/cs7180-final-project')
 sys.path.append('/content/cs7180-final-project/utils')
 sys.path.append('/content/cs7180-final-project/models')
-sys.path.append('/content/cs7180-final-project/results/checkpoints')
+sys.path.append('/content/cs7180-final-project/results/checkpoints/')
 from utils.data_process import load_data
 from models.policy import VectorFieldUNetCFG
 from tqdm import tqdm
@@ -20,7 +20,7 @@ def parse_args():
     parser.add_argument("--d-model", type=int, default=128)
     parser.add_argument("--diffusion-T", type=int, default=16)
     parser.add_argument("--save-path", type=str,
-                        default="checkpoints/model.pt")
+                      default="checkpoints/")
     parser.add_argument("--device", type=str, default="cuda",
                         help="'cuda' or 'cpu'")
     return parser.parse_args()

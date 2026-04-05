@@ -4,6 +4,7 @@ import sys
 sys.path.append('/content/cs7180-final-project')
 sys.path.append('/content/cs7180-final-project/utils')
 sys.path.append('/content/cs7180-final-project/models')
+sys.path.append('/content/cs7180-final-project/results/checkpoints')
 from utils.data_process import load_data
 from models.policy import VectorFieldUNetCFG
 from tqdm import tqdm

@@ -7,6 +7,8 @@ from .encoders import SinusoidalTimeEmb, ResBlock
 class VectorFieldUNetCFG(nn.Module):
     def __init__(self, img_ch: int = 1, base_ch: int = 64, t_dim: int = 128, NUM_CLASSES: int = 10, DROP_PROB: float = 0.1):
         super().__init__()
+        self.DROP_PROB = DROP_PROB
+        self.NULL_CLASS = NUM_CLASSES  # index for null token in class embedding
         tc = t_dim * 2   # projected time dim used throughout
 
         # ── Class embedding (NUM_CLASSES + 1 for null token) ──────────

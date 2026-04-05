@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import math
+from torch.nn import functional as F
 
 class SinusoidalTimeEmb(nn.Module):
     def __init__(self, dim: int):

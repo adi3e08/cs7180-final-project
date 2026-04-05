@@ -1,8 +1,11 @@
 import argparse
 import torch
+import sys
+sys.path.append('/content/cs7180-final-project')
+sys.path.append('/content/cs7180-final-project/utils')
+sys.path.append('/content/cs7180-final-project/models')
 from utils.data_process import load_data
 from models.policy import VectorFieldUNetCFG
-from models.encoders import SinusoidalTimeEmb, ResBlock
 from tqdm import tqdm
 
 def parse_args():
@@ -24,7 +27,7 @@ def parse_args():
 def main():
     args = parse_args()
     model = VectorFieldUNetCFG(img_ch=1, base_ch=64, t_dim=128, NUM_CLASSES=10, DROP_PROB=0.1).to(args.device)
-    train_loader, val_loader = load_data(args.dataset_path, args.resize_to, args.batch_size)
+    train_loader, val_loader = load_data(args.batch_size, args.device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.epochs)

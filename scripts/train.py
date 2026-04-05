@@ -1,4 +1,5 @@
 import argparse
+from models.encoders import StateEncoderMLP
 import torch
 import sys
 from metaworld.policies.sawyer_reach_v3_policy import SawyerReachV3Policy
@@ -8,6 +9,8 @@ sys.path.append('/content/cs7180-final-project/models')
 sys.path.append('/content/cs7180-final-project/results/checkpoints/')
 from utils.data_process import load_data, collect_expert_demos
 from models.policy import VectorFieldUNetCFG
+from models.fusion import VLAFlowMatching
+from models.encoders import ImageEncoderTinyCNN, TextEncoderTinyGRU
 import os
 from tqdm import tqdm
 
@@ -29,7 +32,12 @@ def parse_args():
 
 def main():
     args = parse_args()
-    model = VectorFieldUNetCFG(img_ch=1, base_ch=64, t_dim=128, NUM_CLASSES=10, DROP_PROB=0.1).to(args.device)
+    model = VLAFlowMatching(
+    img_encoder   = ImageEncoderTinyCNN(d_model=128),
+    txt_encoder   = TextEncoderTinyGRU(vocab_size = 128, d_model=128),
+    state_encoder = StateEncoderMLP(state_dim=4, d_model=128),
+    )
+    # model = VectorFieldUNetCFG(img_ch=1, base_ch=64, t_dim=128, NUM_CLASSES=10, DROP_PROB=0.1).to(args.device)
     train_loader, val_loader = load_data(args.batch_size, args.device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-4)

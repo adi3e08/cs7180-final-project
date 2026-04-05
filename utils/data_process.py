@@ -1,10 +1,23 @@
 from torchvision import datasets, transforms
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 import gymnasium as gym
 import numpy as np
 from PIL import Image
 import os
+import random
+import shutil
 
+class DictDataset(Dataset):
+    def __init__(self, data_list):
+        self.data = data_list
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        return item 
+    
 def resize_frame(frame, size=(224, 224)):
     return np.array(Image.fromarray(frame).resize(size))
 
@@ -13,12 +26,14 @@ def collect_expert_demos(env_name, policy_class, num_episodes=10, max_steps=500,
     Collect expert demonstrations for imitation learning.
     Returns list of trajectories, each containing (obs, actions, rewards, success).
     """
-    os.makedirs("/content/cs7180-final-project/data", exist_ok=True)
+    data_dir = "/content/cs7180-final-project/data"
+    if os.path.exists(data_dir):
+        shutil.rmtree(data_dir)
+    os.makedirs(data_dir, exist_ok=True)
     envs = {}
     for cam in ["topview", "gripperPOV", "behindGripper"]:
         envs[cam] = gym.make("Meta-World/MT1", env_name=env_name,
                             seed=seed, render_mode="rgb_array", camera_name=cam)
-    # env = gym.make("Meta-World/MT1",env_name=env_name,seed=seed,render_mode="rgb_array",camera_name="topview",)
     policy = policy_class()
 
     for ep in range(num_episodes):
@@ -84,19 +99,59 @@ def collect_expert_demos(env_name, policy_class, num_episodes=10, max_steps=500,
 
     for cam in ["topview", "gripperPOV", "behindGripper"]:
         envs[cam].close()
+    
+    all_files = sorted([f for f in os.listdir(data_dir) if f.endswith(".npz")])
+
+    random.seed(101)
+    random.shuffle(all_files)
+
+    split = int(0.8 * len(all_files))
+    train_files = all_files[:split]
+    test_files = all_files[split:]
+
+    for folder in ["train", "test"]:
+        os.makedirs(f"{data_dir}/{folder}", exist_ok=True)
+
+    for f in train_files:
+        shutil.move(f"{data_dir}/{f}", f"{data_dir}/train/{f}")
+    for f in test_files:
+        shutil.move(f"{data_dir}/{f}", f"{data_dir}/test/{f}")
+
+    print(f"Train: {len(train_files)} episodes, Test: {len(test_files)} episodes")
+
+# def load_data(BATCH, DEVICE):
+    
+#     tfm = transforms.Compose([
+#         transforms.ToTensor(),
+#         transforms.Normalize((0.5,), (0.5,))  
+#     ])
+
+#     train_ds = datasets.MNIST(root="data", train=True,  download=True, transform=tfm)
+#     val_ds   = datasets.MNIST(root="data", train=False, download=True, transform=tfm)
+
+#     train_loader = DataLoader(train_ds, batch_size=BATCH, shuffle=True,  num_workers=2, pin_memory=True)
+#     val_loader   = DataLoader(val_ds,   batch_size=BATCH, shuffle=False, num_workers=2, pin_memory=True)
+#     print(f"Train: {len(train_ds)} | Val: {len(val_ds)} | Device: {DEVICE}")
+#     return train_loader, val_loader
 
 def load_data(BATCH, DEVICE):
-    
-    tfm = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize((0.5,), (0.5,))  
-    ])
-
-    train_ds = datasets.MNIST(root="data", train=True,  download=True, transform=tfm)
-    val_ds   = datasets.MNIST(root="data", train=False, download=True, transform=tfm)
-
-    train_loader = DataLoader(train_ds, batch_size=BATCH, shuffle=True,  num_workers=2, pin_memory=True)
-    val_loader   = DataLoader(val_ds,   batch_size=BATCH, shuffle=False, num_workers=2, pin_memory=True)
-    print(f"Train: {len(train_ds)} | Val: {len(val_ds)} | Device: {DEVICE}")
-    return train_loader, val_loader
+    data_dir = "/content/cs7180-final-project/data"
+    demo_files = [f for f in os.listdir(data_dir) if f.startswith("demo_") and f.endswith(".npz")]
+    trajectories = []
+    for file in demo_files:
+        data = np.load(os.path.join(data_dir, file), allow_pickle=True)
+        trajectories.append({
+            "proprioception": data["proprioception"],
+            "actions": data["actions"],
+            "rewards": data["rewards"],
+            "top_view": data["top_view"],
+            "gripper_pov": data["gripper_pov"],
+            "behind_gripper": data["behind_gripper"],
+            "text": data["text"].item(),
+            "success": data["success"].item(),
+        })
+    print(f"Loaded {len(trajectories)} trajectories from {data_dir}")
+    dataset = DictDataset(trajectories)
+    loader = DataLoader(dataset, batch_size=2, shuffle=True)
+    return trajectories
 

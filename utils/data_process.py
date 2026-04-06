@@ -8,6 +8,16 @@ import random
 import shutil
 import torch
 
+TASKS = ["pick the red ball"]
+words = ["<pad>"] + list(set(w for t in TASKS for w in t.split()))
+word2idx = {w: i for i, w in enumerate(words)}
+VOCAB_SIZE = len(words)
+
+def tokenize(text, max_len=10):
+    ids = [word2idx.get(w, 0) for w in text.split()]
+    ids = ids[:max_len] + [0] * (max_len - len(ids))   
+    return torch.tensor(ids, dtype=torch.long)
+
 class MetaWorldDataset(Dataset):
     def __init__(self, data_dir):
         self.samples = []
@@ -16,7 +26,7 @@ class MetaWorldDataset(Dataset):
         for file in demo_files:
             data = np.load(os.path.join(data_dir, file), allow_pickle=True)
             T = len(data["actions"])
-            text = str(data["text"])
+            text = str(data["text"].item())
             for t in range(T):
                 self.samples.append({
                     "top_view": data["top_view"][t],           # (224, 224, 3)
@@ -39,7 +49,7 @@ class MetaWorldDataset(Dataset):
             "behind_gripper": torch.FloatTensor(s["behind_gripper"]).permute(2, 0, 1) / 255.0,
             "proprioception": torch.FloatTensor(s["proprioception"]),
             "action": torch.FloatTensor(s["action"]),
-            "text": s["text"],
+            "text":  tokenize(s["text"]),
         }
     
 def resize_frame(frame, size=(224, 224)):

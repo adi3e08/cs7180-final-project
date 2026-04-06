@@ -83,4 +83,4 @@ def emain():
     collect_expert_demos("reach-v3", SawyerReachV3Policy, num_episodes=10)
 
 if __name__ == "__main__":
-    emain()
+    main()

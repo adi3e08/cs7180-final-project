@@ -9,13 +9,89 @@ import gymnasium as gym
 import metaworld
 import math
 import sys
+from utils import get_images
+
+class CNN1(nn.Module):
+    def __init__(self, d_emb):
+        super().__init__()
+        self.conv1 = nn.Conv2d(4,  32,  kernel_size=5, stride=2, padding=2)
+        self.conv2 = nn.Conv2d(32, 64,  kernel_size=3, stride=2, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1)
+        self.pool  = nn.AdaptiveAvgPool2d((1, 1))
+        self.proj  = nn.Linear(128, d_emb)
+
+    def forward(self, x):
+        x = F.silu(self.conv1(x))
+        x = F.silu(self.conv2(x))
+        x = F.silu(self.conv3(x))
+        x = self.pool(x).flatten(1)  # (B, 128)
+        x = self.proj(x)
+        return x  # (B, d_emb)
+
+class MLPVectorField2(nn.Module):
+    def __init__(self, arglist):
+        super().__init__()
+        self.arglist = arglist 
+        
+        # Observation encoding
+        self.proprio_encoder = nn.Linear(arglist.d_proprio, arglist.d_emb)
+        if arglist.image:
+            self.image_encoder = CNN1(arglist.d_emb)
+        if arglist.text:
+            self.text_encoder = nn.Linear(512, arglist.d_emb)
+
+        # Time encoding
+        self.time_encoder = nn.Linear(1, arglist.d_emb)
+
+        # Action encoding
+        self.action_encoder = nn.Linear(arglist.d_act, arglist.d_emb)
+        
+        input_dim = arglist.d_emb * (3+int(self.arglist.image)+int(self.arglist.text))
+
+        # Core vector field
+        self.mlp = nn.Sequential(nn.Linear(input_dim, arglist.d_model), nn.SiLU(),
+                                 nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU(),
+                                 # nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU(),
+                                 nn.Linear(arglist.d_model, arglist.d_act))
+
+    def forward(self, O, A, tau):
+        """
+        O['proprio']: B, d_proprio
+        O['image']: B, 3, 64, 64
+        O['text']: B, 512 # later
+        A: B, d_act
+        tau: B, 1
+        """
+        
+        # Observation encoding
+        obs_emb = []
+        
+        proprio_emb = self.proprio_encoder(O['proprio'])
+        obs_emb.append(proprio_emb)
+
+        if self.arglist.image:
+            rgbd = torch.cat((O['rgb'],O['depth']),1)
+            image_emb = self.image_encoder(rgbd)
+            obs_emb.append(image_emb)
+        
+        if self.arglist.text:
+            text_emb = self.text_encoder(O['text'])
+            obs_emb.append(text_emb)
+        
+        # Time encoding
+        time_emb = self.time_encoder(tau)
+
+        # Action encoding
+        A_emb = self.action_encoder(A)
+
+        v = self.mlp(torch.cat(obs_emb + [A_emb, time_emb], dim=-1))
+        return v
 
 class MLPVectorField1(nn.Module):
     def __init__(self, arglist):
         super().__init__()
         self.mlp = nn.Sequential(nn.Linear(arglist.d_proprio + arglist.d_act + 1, arglist.d_model), nn.SiLU(),
                                  nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU(),
-                                 # nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU(),
                                  nn.Linear(arglist.d_model, arglist.d_act))
 
     def forward(self, O, A, tau):
@@ -25,7 +101,7 @@ class FlowModel(nn.Module):
     def __init__(self, arglist):
         super().__init__()
         self.arglist = arglist
-        self.vector_field = MLPVectorField1(arglist)
+        self.vector_field = MLPVectorField2(arglist)
     
     def loss(self, O, A):
         eps = torch.randn_like(A)
@@ -63,8 +139,11 @@ class FlowModel(nn.Module):
                 tau = tau + h
         return A
 
-def normalize(x, mu, sigma):
-    return (x-mu)/sigma
+def normalize(x, mean, std):
+    return (x-mean)/std
+
+def get_tensor(x, dtype=torch.float32):
+    return torch.from_numpy(x).to(dtype=dtype)
 
 class Dataset(torch.utils.data.Dataset):
     """
@@ -75,22 +154,24 @@ class Dataset(torch.utils.data.Dataset):
         super().__init__()
         dataset = np.load(path)
         self.arglist = arglist
-        self.Q = dataset['proprio']
+        self.proprio = dataset['proprio']
         if self.arglist.image:
-            self.I = dataset['image']
+            self.rgb = dataset['rgb']
+            self.depth = dataset['depth']
         if self.arglist.text:
             self.T = dataset['text']
         self.A = dataset['action']
         if self.arglist.normalize:
-            self.Q_mu = dataset['proprio_mean']
-            self.Q_sigma = dataset['proprio_std']        
-            self.A_mu = dataset['action_mean']
-            self.A_sigma = dataset['action_std']
+            self.proprio_mean = dataset['proprio_mean']
+            self.proprio_std = dataset['proprio_std']        
+            self.A_mean = dataset['action_mean']
+            self.A_std = dataset['action_std']
+            if self.arglist.image:
+                self.rgb_mean = dataset['rgb_mean']
+                self.rgb_std = dataset['rgb_std']
+                self.depth_mean = dataset['depth_mean']
+                self.depth_std = dataset['depth_std']
         self.dims = self.A.shape
-        self.dtype = torch.get_default_dtype()
-
-    def get_tensor(self, x):
-        return torch.from_numpy(x).to(dtype=self.dtype)
     
     def __len__(self):
         return self.dims[0]
@@ -99,20 +180,21 @@ class Dataset(torch.utils.data.Dataset):
         n = idx
 
         if self.arglist.normalize:
-            o =  {'proprio': self.get_tensor(normalize(self.Q[n], self.Q_mu, self.Q_sigma))}
+            o =  {'proprio': get_tensor(normalize(self.proprio[n], self.proprio_mean, self.proprio_std))}
+            a = get_tensor(normalize(self.A[n], self.A_mean, self.A_std))
+            if self.arglist.image:
+                o['rgb'] = get_tensor(normalize(self.rgb[n].astype(np.float32), self.rgb_mean, self.rgb_std))
+                o['depth'] = get_tensor(normalize(self.depth[n], self.depth_mean, self.depth_std))
         else:
-            o =  {'proprio': self.get_tensor(self.Q[n])}
+            o =  {'proprio': get_tensor(self.proprio[n])}
+            a = get_tensor(self.A[n])
+            if self.arglist.image:
+                o['rgb'] = get_tensor(self.rgb[n])
+                o['depth'] = get_tensor(self.depth[n])
         
-        if self.arglist.image:
-            o['image'] = self.get_tensor(self.I[n]/np.float32(255.0))
         if self.arglist.text:
-            o['text'] = self.get_tensor(self.T[n])
+            o['text'] = get_tensor(self.T[n])
         
-        if self.arglist.normalize:
-            a = self.get_tensor(normalize(self.A[n], self.A_mu, self.A_sigma))
-        else:
-            a = self.get_tensor(self.A[n])
-
         return o, a
 
 def check(data_loader, model):
@@ -122,24 +204,28 @@ def check(data_loader, model):
     print("action", A.size())
     loss = model.loss(O, A)
     print("loss", loss)
-    a = model.sample(O)
-    print("sampled action", a.size())
+    # a = model.sample(O)
+    # print("sampled action", a.size())
     sys.exit(0)
 
 def parse_args():
     parser = argparse.ArgumentParser("Flow matching")
     # Settings
-    parser.add_argument("--env", type=str, default="pick-place-v3", help="")
-    parser.add_argument("--image", action="store_true", default=False)
+    parser.add_argument("--env", type=str, default="bin-picking-v3", help="")
+    parser.add_argument("--image", action="store_true", default=True)
+    parser.add_argument("--camera-id", type=int, default=6, help="6: gripper pov")
+    parser.add_argument("--image-height", type=int, default=240, help="image height")
+    parser.add_argument("--image-width", type=int, default=240, help="image width")
     parser.add_argument("--text", action="store_true", default=False)
-    parser.add_argument("--expt", type=str, default="expt_proprio_128_3", help="expt name")
+    parser.add_argument("--expt", type=str, default="expt_proprio_image_128_3_emb_32", help="expt name")
     parser.add_argument("--seed", type=int, default=0, help="seed")
     parser.add_argument("--T-flow", type=int, default=20, help="flow time steps for sampling")
     parser.add_argument("--d-model", type=int, default=128, help="hidden size dim")
     parser.add_argument("--d-emb", type=int, default=32, help="hidden size dim")
     parser.add_argument("--normalize", action="store_true", default=True)
     parser.add_argument("--batch-size", type=int, default=64, help="batch size")
-    parser.add_argument("--epochs", type=int, default=250, help="number of epochs to train")
+    parser.add_argument("--epochs", type=int, default=500, help="number of epochs to train")
+    parser.add_argument("--evaluate-agent", action="store_true", default=False, help="evaluate agent performance periodically")
     return parser.parse_args()
 
 def main():
@@ -165,19 +251,33 @@ def main():
     os.mkdir(tensorboard_dir)
     writer = SummaryWriter(log_dir=tensorboard_dir)
 
+    if arglist.evaluate_agent:
+        if arglist.image:
+            env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode="rgb_array",\
+                            camera_id=arglist.camera_id ,height=arglist.image_height,width=arglist.image_width)
+        else:
+            env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode='none')
+    
     if arglist.image:
-        render_mode = 'rgb_array'
+        arglist.d_proprio = 4
     else:
-        render_mode = 'none'
-    print(arglist.env)
-    env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode=render_mode)
-    arglist.d_proprio = 39 # proprio size
+        arglist.d_proprio = 14
     arglist.d_act = 4 # action size
     model = FlowModel(arglist).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
     train_data = Dataset(os.path.join(flow_matching_dir, "train.npz"), arglist)
     test_data = Dataset(os.path.join(flow_matching_dir, "test.npz"), arglist)
+    if arglist.normalize:
+        proprio_mean = train_data.proprio_mean
+        proprio_std = train_data.proprio_std
+        A_mean = train_data.A_mean
+        A_std = train_data.A_std
+        if arglist.image:
+            rgb_mean = train_data.rgb_mean
+            rgb_std = train_data.rgb_std
+            depth_mean = train_data.depth_mean
+            depth_std = train_data.depth_std
     if torch.cuda.is_available():
         num_workers=2
         pin_memory=True
@@ -230,34 +330,44 @@ def main():
             torch.save({'model' : model.state_dict(),
                         'optimizer' : optimizer.state_dict(), 
                         'epoch' : epoch}, os.path.join(model_dir, str(epoch)+".ckpt"))
-            
-            # Evaluate agent performance over several episodes
-            metric = []
-            for episode in range(5):
-                o, info = env.reset()
-                while True:
-                    if arglist.normalize:
-                        O = {'proprio': torch.tensor(normalize(o, train_data.Q_mu, train_data.Q_sigma),
-                             dtype=torch.float32, device=device).unsqueeze(0)}
-                    else:
-                        O = {'proprio': torch.tensor(o, dtype=torch.float32, device=device).unsqueeze(0)}
 
-                    if arglist.image:
-                        O['image'] = torch.tensor(o['image']/np.float32(255.0), dtype=torch.float32, device=device).unsqueeze(0)
+            if arglist.evaluate_agent:            
+                # Evaluate agent performance over several episodes
+                metric = []
+                for episode in range(5):
+                    o, info = env.reset()
+                    while True:
+                        if arglist.image:
+                            proprio = o[:4]
+                        else:
+                            proprio = np.concatenate((o[:11],o[-3:]))
+                        if arglist.normalize:
+                            O = {'proprio': get_tensor(normalize(proprio, proprio_mean, proprio_std)).unsqueeze(0).to(device)}
+                        else:
+                            O = {'proprio': get_tensor(proprio).unsqueeze(0).to(device)}
 
-                    with torch.no_grad():
-                        A = model.sample(O)
-                    a = A.cpu().numpy()[0]
-                    if arglist.normalize:
-                        a = a * train_data.A_sigma + train_data.A_mu
-                    o_1, r, terminated, truncated, info = env.step(a)
-                    success = int(info['success'])
-                    done = terminated or truncated or success
-                    o = o_1
-                    if done:
-                        metric.append(success)
-                        break
-            writer.add_scalar('task_success_rate', np.mean(metric), epoch)
+                        if arglist.image:
+                            rgb_array, depth_array = get_images(env)
+                            if arglist.normalize:
+                                O['rgb'] = get_tensor(normalize(rgb_array.astype(np.float32), rgb_mean, rgb_std)).unsqueeze(0).to(device)
+                                O['depth'] = get_tensor(normalize(depth_array, depth_mean, depth_std)).unsqueeze(0).to(device)
+                            else:
+                                O['rgb'] = get_tensor(rgb_array).unsqueeze(0).to(device)
+                                O['depth'] = get_tensor(depth_array).unsqueeze(0).to(device)
+
+                        with torch.no_grad():
+                            A = model.sample(O)
+                        a = A.cpu().numpy()[0]
+                        if arglist.normalize:
+                            a = a * A_std + A_mean
+                        o_1, r, terminated, truncated, info = env.step(a)
+                        success = int(info['success'])
+                        done = terminated or truncated or success
+                        o = o_1
+                        if done:
+                            metric.append(success)
+                            break
+                writer.add_scalar('task_success_rate', np.mean(metric), epoch)
 
     writer.close()
 

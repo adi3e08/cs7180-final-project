@@ -22,7 +22,6 @@ This repository contains code and data for the CS7180 final project.
     	eval.py: Code to evaluate the flow matching model.
     
     notebooks/ :
-    	
     	run.ipynb: Notebook for colab training.
     
     models/: Trained models are stored here in a separate folder for each experiment.

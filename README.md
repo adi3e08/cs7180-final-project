@@ -8,18 +8,28 @@ This repository contains code and data for the CS7180 final project.
 
 ## Directory Structure
 
-    data/raw/ : Raw data is stored here in a separate folder for each experiment
+    data/raw/ : Raw data is stored here in a separate folder for each experiment.
+    
     src/: 
-    	create_dataset.py: Code to create the dataset for imitation learning
-    	model.py: Flow matching model definition
-    	utils.py: Some utility functions
-    	train.py: Code to train the flow matching model
-    	eval.py: Code to evaluate the flow matching model
+    	create_dataset.py: Code to create the dataset for imitation learning.
+    	
+    	model.py: Flow matching model definition.
+    	
+    	utils.py: Some utility functions.
+    	
+    	train.py: Code to train the flow matching model.
+    	
+    	eval.py: Code to evaluate the flow matching model.
+    
     notebooks/ :
-    	run.ipynb: Notebook for colab training
-    models/: Trained models are stored here in a separate folder for each experiment 
-    docs/: Documentation
-    results/: Tensorboard plots are stored here in a separate folder for each experiment 
+    	
+    	run.ipynb: Notebook for colab training.
+    
+    models/: Trained models are stored here in a separate folder for each experiment.
+    
+    docs/: Documentation.
+    
+    results/: Tensorboard plots are stored here in a separate folder for each experiment. 
 
 ## Instructions
 1. Create a local conda environment
@@ -50,13 +60,11 @@ This repository contains code and data for the CS7180 final project.
 
 3. Train the flow matching model 
 	
-	To run locally: 
-
-	```python -m src.train```
+	To train locally: ```python -m src.train```
 	
-	To run on colab: Upload the project folder to colab and run notebooks/train.ipynb
+	To train on colab: Upload the project folder to colab and run notebooks/train.ipynb
 
-	Note: For expt_1, both local and colab training are fast. For expt_2, local is slow, colab is preferred.
+	Note: For expt_1, both local and colab training are fast. For expt_2, local is quite slow, colab is preferred.
 
 4. Evaluate the flow matching model (locally)
 	

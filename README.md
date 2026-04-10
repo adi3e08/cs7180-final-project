@@ -8,7 +8,10 @@ This repository contains code and data for the CS7180 final project.
 
 ## Directory Structure
 
-    data/raw/ : Raw data is stored here in a separate folder for each experiment.
+    data/: 
+    	raw/ : Raw data is stored here in a separate folder for each experiment.
+    	
+    	processed/: Nothing stored here at the moment.
     
     src/: 
     	create_dataset.py: Code to create the dataset for imitation learning.

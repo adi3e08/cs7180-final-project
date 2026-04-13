@@ -16,7 +16,7 @@ def parse_args():
     parser.add_argument("--ckpt", type=str, default="best.ckpt")
     parser.add_argument("--episodes", type=int, default=1)
     # Simulation parameters
-    parser.add_argument("--d-proprio", type=int, default=4, help="proprio dimension, expt_1: 14, expt2: 4")
+    parser.add_argument("--d-proprio", type=int, default=4, help="proprio dimension, expt_1: 11, expt2: 4")
     parser.add_argument("--d-act", type=int, default=4, help="action dimension is 4 across meta-world tasks")
     parser.add_argument("--display", action="store_true", default=True)
     parser.add_argument("--image", action="store_true", default=True, help="expt_1: False, expt_2: True")

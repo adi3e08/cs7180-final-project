@@ -43,18 +43,18 @@ def main(arglist):
             if arglist.image:
                 # In proprio we store only end-effector position and gripper state
                 proprio.append(o[:4].astype(np.float32))
-                # Object position, object orientation and goal position 
-                # must be inferred from rgb and depth images 
+                # Object position, object orientation must be inferred from rgb and depth images 
                 rgb_array, depth_array = get_images(env)
                 rgb.append(rgb_array.astype(np.uint8))
                 depth.append(depth_array.astype(np.float32))
             else:
-                # In proprio we store end-effector position, gripper state, object position, 
-                # object orientation, goal position 
-                proprio.append(np.concatenate((o[:11],o[-3:])).astype(np.float32))
+                # In proprio we store end-effector position, gripper state,  
+                # object position, object orientation
+                proprio.append(o[:11].astype(np.float32))
             a = policy.get_action(o)
             o_1, r, terminated, truncated, info = env.step(a)
-            done = int(info['success']) == 1
+            success = int(info['success'])
+            done = terminated or truncated or success
             action.append(a.astype(np.float32))
             o = o_1
             if done:
@@ -114,7 +114,7 @@ def simple_check(arglist):
         print(f"\n{mode}")
         for key in dataset:
             value = dataset[key]
-            print(f"  {key}: dtype: {value.dtype} shape: {value.shape}, min: {np.min(value)}, max: {np.max(value)}")
+            print(f"  {key}: dtype: {value.dtype} shape: {value.shape}")
             # if key == 'text':
             #     print(dataset[key])
 

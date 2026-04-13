@@ -8,17 +8,16 @@ def construct_observation_tensor(o, env, arglist, stats, device):
         # In proprio we store only end-effector position and gripper state
         proprio = o[:4]
     else:
-        # In proprio we store end-effector position, gripper state, object position, 
-        # object orientation, goal position 
-        proprio = np.concatenate((o[:11],o[-3:]))
+        # In proprio we store end-effector position, gripper state,  
+        # object position, object orientation
+        proprio = o[:11]
     if arglist.normalize:
         O = {'proprio': get_tensor(normalize(proprio, stats['proprio_mean'], stats['proprio_std'])).unsqueeze(0).to(device)}
     else:
         O = {'proprio': get_tensor(proprio).unsqueeze(0).to(device)}
 
     if arglist.image:
-        # Object position, object orientation and goal position 
-        # must be inferred from rgb and depth images 
+        # Object position, object orientation must be inferred from rgb and depth images 
         rgb_array, depth_array = get_images(env)
         if arglist.normalize:
             O['rgb'] = get_tensor(normalize(rgb_array.astype(np.float32), stats['rgb_mean'], stats['rgb_std'])).unsqueeze(0).to(device)

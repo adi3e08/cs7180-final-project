@@ -81,7 +81,7 @@ def parse_args():
     parser.add_argument("--expt", type=str, default="expt_2", help="expt name")
     parser.add_argument("--seed", type=int, default=0, help="seed")
     # Simulation parameters
-    parser.add_argument("--d-proprio", type=int, default=4, help="proprio dimension, expt_1: 14, expt2: 4")
+    parser.add_argument("--d-proprio", type=int, default=4, help="proprio dimension, expt_1: 11, expt2: 4")
     parser.add_argument("--d-act", type=int, default=4, help="action dimension is 4 across meta-world tasks")
     parser.add_argument("--image", action="store_true", default=True, help="expt_1: False, expt_2: True")
     parser.add_argument("--camera-id", type=int, default=6, help="6: gripper pov")

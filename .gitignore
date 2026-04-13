@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# Data
+data/raw/
+
+# Models & results
+models/
+results/
+
+# Virtual environment
+.venv/
+
+# MuJoCo
+*.png
+mjpatch.txt

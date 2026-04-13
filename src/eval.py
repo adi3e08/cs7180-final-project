@@ -18,8 +18,8 @@ def parse_args():
     # Simulation parameters
     parser.add_argument("--d-proprio", type=int, default=4, help="proprio dimension, expt_1: 11, expt2: 4")
     parser.add_argument("--d-act", type=int, default=4, help="action dimension is 4 across meta-world tasks")
-    parser.add_argument("--display", action="store_true", default=True)
-    parser.add_argument("--image", action="store_true", default=True, help="expt_1: False, expt_2: True")
+    parser.add_argument("--display", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--image", action=argparse.BooleanOptionalAction, default=False, help="expt_1: False, expt_2: True")
     parser.add_argument("--camera-id", type=int, default=6, help="6: gripper pov")
     parser.add_argument("--image-height", type=int, default=240, help="image height")
     parser.add_argument("--image-width", type=int, default=240, help="image width")
@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument("--T-flow", type=int, default=20, help="flow time steps for sampling")
     parser.add_argument("--d-model", type=int, default=128, help="hidden size dim, expt_1: 64, expt_2: 128")
     parser.add_argument("--d-emb", type=int, default=32, help="embedding dim (only for expt_2 currently)")
-    parser.add_argument("--normalize", action="store_true", default=True)
+    parser.add_argument("--normalize", action=argparse.BooleanOptionalAction, default=True)
     return parser.parse_args()
 
 def eval_expert_policy(arglist):

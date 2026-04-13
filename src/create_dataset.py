@@ -13,7 +13,7 @@ def parse_args():
     parser.add_argument("--expt", type=str, default="expt_2", help="expt name")
     parser.add_argument("--seed",     type=int,  default=0)
     parser.add_argument("--episodes", type=int,  default=100)
-    parser.add_argument("--image", action="store_true", default=True, help="expt_1: False, expt_2: True")
+    parser.add_argument("--image", action=argparse.BooleanOptionalAction, default=False, help="expt_1: False, expt_2: True")
     parser.add_argument("--camera-id", type=int, default=6, help="6: gripper pov")
     parser.add_argument("--image-height", type=int, default=240, help="image height")
     parser.add_argument("--image-width", type=int, default=240, help="image width")

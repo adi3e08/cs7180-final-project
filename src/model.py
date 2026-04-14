@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision.models import resnet18, ResNet18_Weights
 from src.utils import construct_observation_tensor
 
 class CNN1(nn.Module):
@@ -22,6 +23,47 @@ class CNN1(nn.Module):
         x = self.proj(x)
         return x  # (B, d_emb)
 
+class ResNetBackbone(nn.Module):
+    """Pretrained ResNet-18 backbone adapted for 4-channel (RGB + depth) input.
+
+    The first conv layer is re-initialized to accept 4 channels: pretrained
+    RGB weights are copied into channels 0-2, and channel 3 (depth) is
+    initialized as the mean of the RGB weights so it starts in a reasonable range.
+    All layers except the first conv and the final projection are frozen.
+    """
+    def __init__(self, d_emb):
+        super().__init__()
+        backbone = resnet18(weights=ResNet18_Weights.DEFAULT)
+
+        # Adapt first conv: 3ch → 4ch
+        old_conv = backbone.conv1  # (64, 3, 7, 7)
+        new_conv = nn.Conv2d(4, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        with torch.no_grad():
+            new_conv.weight[:, :3] = old_conv.weight          # copy RGB weights
+            new_conv.weight[:, 3:] = old_conv.weight.mean(1, keepdim=True)  # depth init
+        backbone.conv1 = new_conv
+
+        # Remove the original classifier head
+        self.features = nn.Sequential(
+            backbone.conv1, backbone.bn1, backbone.relu, backbone.maxpool,
+            backbone.layer1, backbone.layer2, backbone.layer3, backbone.layer4,
+            backbone.avgpool,
+        )
+
+        # Freeze everything except the new first conv layer
+        for name, param in self.features.named_parameters():
+            if not name.startswith("0."):  # "0." is conv1 in the Sequential
+                param.requires_grad = False
+
+        # Projection head (trainable)
+        self.proj = nn.Linear(512, d_emb)
+
+    def forward(self, x):
+        x = self.features(x)   # (B, 512, 1, 1)
+        x = x.flatten(1)       # (B, 512)
+        x = self.proj(x)       # (B, d_emb)
+        return x
+
 class MLPVectorField2(nn.Module):
     def __init__(self, arglist):
         super().__init__()
@@ -30,7 +72,11 @@ class MLPVectorField2(nn.Module):
         # Observation encoding
         self.proprio_encoder = nn.Linear(arglist.d_proprio, arglist.d_emb)
         if arglist.image:
-            self.image_encoder = CNN1(arglist.d_emb)
+            backbone = getattr(arglist, 'backbone', 'cnn')
+            if backbone == 'resnet18':
+                self.image_encoder = ResNetBackbone(arglist.d_emb)
+            else:
+                self.image_encoder = CNN1(arglist.d_emb)
         if arglist.text:
             self.text_encoder = nn.Linear(512, arglist.d_emb)
 
@@ -96,9 +142,11 @@ class FlowMatchingModel(nn.Module):
         self.arglist = arglist
         if arglist.expt == "expt_1":
             self.vector_field = MLPVectorField1(arglist)
-        elif arglist.expt == "expt_2":
+        elif arglist.expt in ("expt_2", "expt_2_resnet"):
             self.vector_field = MLPVectorField2(arglist)
-        data_dir = os.path.join("./data/raw", arglist.expt)
+        # expt_2_resnet shares data with expt_2
+        data_expt = "expt_2" if arglist.expt == "expt_2_resnet" else arglist.expt
+        data_dir = os.path.join("./data/raw", data_expt)
         self.stats = np.load(os.path.join(data_dir, "stats.npz"), allow_pickle=True)
     
     def loss(self, O, A):

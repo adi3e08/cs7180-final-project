@@ -19,7 +19,8 @@ class Dataset(torch.utils.data.Dataset):
     """
     def __init__(self, arglist, mode):
         super().__init__()
-        data_dir = os.path.join("./data/raw", arglist.expt)
+        data_expt = "expt_2" if arglist.expt == "expt_2_resnet" else arglist.expt
+        data_dir = os.path.join("./data/raw", data_expt)
         dataset = np.load(os.path.join(data_dir, mode+".npz"), allow_pickle=True)
         stats = np.load(os.path.join(data_dir, "stats.npz"), allow_pickle=True)
         self.arglist = arglist
@@ -88,6 +89,7 @@ def parse_args():
     parser.add_argument("--image-height", type=int, default=240, help="image height")
     parser.add_argument("--image-width", type=int, default=240, help="image width")
     parser.add_argument("--text", action="store_true", default=False)
+    parser.add_argument("--backbone", type=str, default="cnn", choices=["cnn", "resnet18"], help="image backbone: cnn (from scratch) or resnet18 (pretrained)")
     # Training parameters
     parser.add_argument("--T-flow", type=int, default=20, help="flow time steps for sampling")
     parser.add_argument("--d-model", type=int, default=128, help="hidden size dim, expt_1: 64, expt_2: 128")

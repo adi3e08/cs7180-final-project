@@ -47,7 +47,6 @@ def eval_expert_policy(arglist):
             o_1, r, terminated, truncated, info = env.step(a)
             if arglist.display:
                 env.render()
-                time.sleep(0.05)
             o = o_1
             success = int(info['success'])
             done = terminated or truncated or success
@@ -61,7 +60,7 @@ def eval_model(arglist):
     np.random.seed(arglist.seed)
     torch.set_default_dtype(torch.float32)
     torch.manual_seed(arglist.seed)
-    device = torch.device("cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
     if arglist.display:
         render_mode = "human"
@@ -91,7 +90,6 @@ def eval_model(arglist):
             o_1, r, terminated, truncated, info = env.step(a)
             if arglist.display:
                 env.render()
-                time.sleep(0.05)
             success = int(info['success'])
             done = terminated or truncated or success
             o = o_1

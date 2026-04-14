@@ -96,6 +96,7 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=64, help="batch size")
     parser.add_argument("--epochs", type=int, default=500, help="number of epochs to train, expt_1: 100, expt_2: 500")
     parser.add_argument("--evaluate-agent", action="store_true", default=False, help="evaluate agent performance periodically")
+    parser.add_argument("--resume", type=str, default=None, help="path to checkpoint to resume from, e.g. models/expt_2/99.ckpt")
     return parser.parse_args()
 
 def main():
@@ -104,12 +105,12 @@ def main():
     np.random.seed(arglist.seed)
     torch.set_default_dtype(torch.float32)
     torch.manual_seed(arglist.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
 
     model_dir = os.path.join("./models", arglist.expt)
     results_dir = os.path.join("./results", arglist.expt)
-    os.mkdir(model_dir)
-    os.mkdir(results_dir)
+    os.makedirs(model_dir, exist_ok=True)
+    os.makedirs(results_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=results_dir)
 
     if arglist.evaluate_agent:
@@ -122,6 +123,15 @@ def main():
     model = FlowMatchingModel(arglist).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
 
+    start_epoch = 0
+    best_test_loss = np.inf
+    if arglist.resume:
+        checkpoint = torch.load(arglist.resume, map_location=device)
+        model.load_state_dict(checkpoint['model'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        start_epoch = checkpoint['epoch'] + 1
+        print(f"Resumed from {arglist.resume} at epoch {checkpoint['epoch']}")
+
     train_data = Dataset(arglist, "train")
     test_data = Dataset(arglist, "test")
 
@@ -130,7 +140,7 @@ def main():
         pin_memory=True
     else:
         num_workers=0
-        pin_memory=False
+        pin_memory=False  # MPS and CPU don't support pin_memory
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=arglist.batch_size, shuffle=True, 
                                                num_workers=num_workers, pin_memory=pin_memory)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=arglist.batch_size, shuffle=True, 
@@ -139,8 +149,7 @@ def main():
     # check(train_loader, model)
 
     # Loop over epochs
-    best_test_loss = np.inf
-    for epoch in range(arglist.epochs):
+    for epoch in range(start_epoch, arglist.epochs):
         
         # Training
         model.train()

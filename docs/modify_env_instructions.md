@@ -22,19 +22,19 @@ from metaworld.envs.sawyer_bin_picking_v3_three_objects import SawyerBinPickingT
 
 Add this to the list `__all__`
 ```python
-    "SawyerBinPickingTwoObjEnvV3",
-    "SawyerBinPickingThreeObjEnvV3"
+"SawyerBinPickingTwoObjEnvV3",
+"SawyerBinPickingThreeObjEnvV3"
 ```
 
 ### `metaworld/env_dict.py`
 Add this to the `ENV_CLS_MAP` dict:
 ```python
-    "bin-picking-two-objects-v3": envs.SawyerBinPickingTwoObjEnvV3,
-    "bin-picking-three-objects-v3": envs.SawyerBinPickingThreeObjEnvV3,
+"bin-picking-two-objects-v3": envs.SawyerBinPickingTwoObjEnvV3,
+"bin-picking-three-objects-v3": envs.SawyerBinPickingThreeObjEnvV3,
 ```
 
 Add this to the `ALL_V3_ENVIRONMENTS` list:
 ```python
-  "bin-picking-two-objects-v3",
-  "bin-picking-three-objects-v3",
+"bin-picking-two-objects-v3",
+"bin-picking-three-objects-v3",
 ```

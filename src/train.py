@@ -1,20 +1,28 @@
+import warnings
+warnings.filterwarnings("ignore")
 import os
+import sys
 import argparse
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
-import gymnasium as gym
-import metaworld
-import sys
 from src.model import FlowMatchingModel
-from src.utils import normalize, get_tensor
+from src.utils import normalize, get_tensor, add_expt_config
+
+def parse_args():
+    parser = argparse.ArgumentParser("Flow matching")
+    parser.add_argument("--expt", type=str, default="expt_4", help="expt name")
+    parser.add_argument("--seed", type=int, default=0, help="seed")
+    arglist = parser.parse_args()
+    arglist = add_expt_config(arglist)
+    return arglist
 
 class Dataset(torch.utils.data.Dataset):
     """
     dataset['proprio']: N, d_obs
     dataset['rgb']: N, 3, 240, 240
     dataset['depth']: N, 1, 240, 240
-    dataset['text']: To be decided
+    dataset['text']: N
     dataset['action']: N, d_act
     """
     def __init__(self, arglist, mode):
@@ -28,7 +36,7 @@ class Dataset(torch.utils.data.Dataset):
             self.rgb = dataset['rgb']
             self.depth = dataset['depth']
         if self.arglist.text:
-            self.T = dataset['text']
+            self.text = np.expand_dims(dataset['text'],axis=1)
         self.A = dataset['action']
         if self.arglist.normalize:
             self.proprio_mean = stats['proprio_mean']
@@ -62,7 +70,7 @@ class Dataset(torch.utils.data.Dataset):
                 o['depth'] = get_tensor(self.depth[n])
         
         if self.arglist.text:
-            o['text'] = get_tensor(self.T[n])
+            o['text'] = get_tensor(self.text[n],dtype=torch.long)
         
         return o, a
 
@@ -74,29 +82,6 @@ def check(data_loader, model):
     loss = model.loss(O, A)
     print("loss", loss)
     sys.exit(0)
-
-def parse_args():
-    parser = argparse.ArgumentParser("Flow matching")
-    parser.add_argument("--env", type=str, default="bin-picking-v3", help="")
-    parser.add_argument("--expt", type=str, default="expt_2", help="expt name")
-    parser.add_argument("--seed", type=int, default=0, help="seed")
-    # Simulation parameters
-    parser.add_argument("--d-proprio", type=int, default=4, help="proprio dimension, expt_1: 11, expt2: 4")
-    parser.add_argument("--d-act", type=int, default=4, help="action dimension is 4 across meta-world tasks")
-    parser.add_argument("--image", action=argparse.BooleanOptionalAction, default=False, help="expt_1: False, expt_2: True")
-    parser.add_argument("--camera-id", type=int, default=6, help="6: gripper pov")
-    parser.add_argument("--image-height", type=int, default=240, help="image height")
-    parser.add_argument("--image-width", type=int, default=240, help="image width")
-    parser.add_argument("--text", action="store_true", default=False)
-    # Training parameters
-    parser.add_argument("--T-flow", type=int, default=20, help="flow time steps for sampling")
-    parser.add_argument("--d-model", type=int, default=128, help="hidden size dim, expt_1: 64, expt_2: 128")
-    parser.add_argument("--d-emb", type=int, default=32, help="embedding dim (only for expt_2 currently)")
-    parser.add_argument("--normalize", action=argparse.BooleanOptionalAction, default=True)
-    parser.add_argument("--batch-size", type=int, default=64, help="batch size")
-    parser.add_argument("--epochs", type=int, default=500, help="number of epochs to train, expt_1: 100, expt_2: 500")
-    parser.add_argument("--evaluate-agent", action="store_true", default=False, help="evaluate agent performance periodically")
-    return parser.parse_args()
 
 def main():
     arglist = parse_args()
@@ -111,13 +96,6 @@ def main():
     os.mkdir(model_dir)
     os.mkdir(results_dir)
     writer = SummaryWriter(log_dir=results_dir)
-
-    if arglist.evaluate_agent:
-        if arglist.image:
-            env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode="rgb_array",\
-                            camera_id=arglist.camera_id ,height=arglist.image_height,width=arglist.image_width)
-        else:
-            env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode='none')
     
     model = FlowMatchingModel(arglist).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
@@ -126,7 +104,7 @@ def main():
     test_data = Dataset(arglist, "test")
 
     if torch.cuda.is_available():
-        num_workers=2
+        num_workers=1
         pin_memory=True
     else:
         num_workers=0
@@ -136,7 +114,7 @@ def main():
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=arglist.batch_size, shuffle=True, 
                                               num_workers=num_workers, pin_memory=pin_memory)
 
-    # check(train_loader, model)
+    # check(test_loader, model)
 
     # Loop over epochs
     best_test_loss = np.inf
@@ -177,24 +155,6 @@ def main():
             torch.save({'model' : model.state_dict(),
                         'optimizer' : optimizer.state_dict(), 
                         'epoch' : epoch}, os.path.join(model_dir, str(epoch)+".ckpt"))
-
-            if arglist.evaluate_agent:            
-                # Evaluate agent performance over several episodes
-                # This block runs fine on local. 
-                # Throws errors in Colab which is a headless environment (no display). Need to fix.
-                metric = []
-                for episode in range(5):
-                    o, info = env.reset()
-                    while True:
-                        a = model.sample(o, env, device)
-                        o_1, r, terminated, truncated, info = env.step(a)
-                        success = int(info['success'])
-                        done = terminated or truncated or success
-                        o = o_1
-                        if done:
-                            metric.append(success)
-                            break
-                writer.add_scalar('task_success_rate', np.mean(metric), epoch)
 
     writer.close()
 

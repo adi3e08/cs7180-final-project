@@ -32,7 +32,7 @@ class MLPVectorField2(nn.Module):
         if arglist.image:
             self.image_encoder = CNN1(arglist.d_emb)
         if arglist.text:
-            self.text_encoder = nn.Linear(512, arglist.d_emb)
+            self.text_encoder = nn.Embedding(arglist.num_objects, arglist.d_emb)
 
         # Time encoding
         self.time_encoder = nn.Linear(1, arglist.d_emb)
@@ -43,15 +43,17 @@ class MLPVectorField2(nn.Module):
         input_dim = arglist.d_emb * (3+int(self.arglist.image)+int(self.arglist.text))
 
         # Core vector field
-        self.mlp = nn.Sequential(nn.Linear(input_dim, arglist.d_model), nn.SiLU(),
-                                 nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU(),
-                                 nn.Linear(arglist.d_model, arglist.d_act))
+        layers = [nn.Linear(input_dim, arglist.d_model), nn.SiLU()]
+        for _ in range(arglist.num_layers - 2):
+            layers += [nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU()]
+        layers.append(nn.Linear(arglist.d_model, arglist.d_act))
+        self.mlp = nn.Sequential(*layers)
 
     def forward(self, O, A, tau):
         """
         O['proprio']: B, d_proprio
         O['image']: B, 3, 64, 64
-        O['text']: B, 512 # later
+        O['text']: B, 1
         A: B, d_act
         tau: B, 1
         """
@@ -68,7 +70,7 @@ class MLPVectorField2(nn.Module):
             obs_emb.append(image_emb)
         
         if self.arglist.text:
-            text_emb = self.text_encoder(O['text'])
+            text_emb = self.text_encoder(O['text']).squeeze(1)
             obs_emb.append(text_emb)
         
         # Time encoding
@@ -83,9 +85,11 @@ class MLPVectorField2(nn.Module):
 class MLPVectorField1(nn.Module):
     def __init__(self, arglist):
         super().__init__()
-        self.mlp = nn.Sequential(nn.Linear(arglist.d_proprio + arglist.d_act + 1, arglist.d_model), nn.SiLU(),
-                                 nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU(),
-                                 nn.Linear(arglist.d_model, arglist.d_act))
+        layers = [nn.Linear(arglist.d_proprio + arglist.d_act + 1, arglist.d_model), nn.SiLU()]
+        for _ in range(arglist.num_layers - 2):
+            layers += [nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU()]
+        layers.append(nn.Linear(arglist.d_model, arglist.d_act))
+        self.mlp = nn.Sequential(*layers)
 
     def forward(self, O, A, tau):
         return self.mlp(torch.cat([O['proprio'], A, tau], dim=-1))
@@ -96,7 +100,7 @@ class FlowMatchingModel(nn.Module):
         self.arglist = arglist
         if arglist.expt == "expt_1":
             self.vector_field = MLPVectorField1(arglist)
-        elif arglist.expt == "expt_2":
+        else:
             self.vector_field = MLPVectorField2(arglist)
         data_dir = os.path.join("./data/raw", arglist.expt)
         self.stats = np.load(os.path.join(data_dir, "stats.npz"), allow_pickle=True)
@@ -118,8 +122,8 @@ class FlowMatchingModel(nn.Module):
         return A + h * ((1.0 - 1.0/(2.0*alpha))*k1 + (1.0/(2.0*alpha))*k2)
 
     @torch.no_grad()
-    def sample(self, o, env, device):
-        O = construct_observation_tensor(o, env, self.arglist, self.stats, device)
+    def sample(self, o, env, device, target=None):
+        O = construct_observation_tensor(o, env, self.arglist, self.stats, device, target)
         n_samples = 1
         h = 1 / self.arglist.T_flow
         tau = torch.zeros(n_samples, 1, device=device)

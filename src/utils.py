@@ -2,20 +2,85 @@ import os
 import numpy as np
 import torch
 from PIL import Image
+import json
 
-def construct_observation_tensor(o, env, arglist, stats, device):
+def add_expt_config(arglist):
+    # Load config file and merge into arglist
+    config_path = os.path.join("./config", f"{arglist.expt}.json")
+    with open(config_path) as f:
+        cfg = json.load(f)
+    for k, v in cfg.items():
+        setattr(arglist, k, v)
+    return arglist
+
+def check_success(o_1, target, arglist):
+    # Meta-world's info['success'] only checks if the default object (green) reached the goal
+    # This does not work when we have multiple objects
+    # Hence we define our function, which checks if the actual target object reached the goal
+    
+    if arglist.num_objects == 1:
+        obj_pos = o_1[4:7]   # obj1 position
+
+    elif arglist.num_objects == 2:
+        if target == 0:
+            obj_pos = o_1[4:7]   # obj1 position
+        else:
+            obj_pos = o_1[11:14] # obj2 position
+    elif arglist.num_objects == 3:
+        if target == 0:
+            obj_pos = o_1[4:7]   # obj1 position
+        elif target == 1:
+            obj_pos = o_1[11:14] # obj2 position                    
+        elif target == 2:
+            obj_pos = o_1[18:21] # obj3 position
+    
+    goal_pos = o_1[-3:]
+    correct_obj_success = float(np.linalg.norm(obj_pos - goal_pos) < 0.05)
+    success = int(correct_obj_success)
+    return success
+
+def swap_obs(o, target, arglist):
+    # Meta-world's expert policy goes to the first object in the observation by default
+    # Hence, when the target is not the first object, we swap the target with the first object
+    # in the observation vector
+    if target == 0:
+        return o
+    elif arglist.num_objects == 2 and target == 1:
+        new_o = o.copy()
+        new_o[4:11] = o[11:18]
+        new_o[11:18] = o[4:11]
+        new_o[22:29] = o[29:36]
+        new_o[29:36] = o[22:29]
+        return new_o
+    elif arglist.num_objects == 3 and target == 1:
+        new_o = o.copy()
+        new_o[4:11] = o[11:18]
+        new_o[11:18] = o[4:11]
+        new_o[29:36] = o[36:43]
+        new_o[36:43] = o[29:36]
+        return new_o
+    elif arglist.num_objects == 3 and target == 2:
+        new_o = o.copy()
+        new_o[4:11] = o[18:25]
+        new_o[18:25] = o[4:11]
+        new_o[29:36] = o[43:50]
+        new_o[43:50] = o[29:36]
+        return new_o
+
+def construct_observation_tensor(o, env, arglist, stats, device, target=None):
+    # Proprioception
     if arglist.image:
         # In proprio we store only end-effector position and gripper state
         proprio = o[:4]
     else:
-        # In proprio we store end-effector position, gripper state,  
-        # object position, object orientation
+        # In proprio we store end-effector position, gripper state, object position, object orientation
         proprio = o[:11]
     if arglist.normalize:
         O = {'proprio': get_tensor(normalize(proprio, stats['proprio_mean'], stats['proprio_std'])).unsqueeze(0).to(device)}
     else:
         O = {'proprio': get_tensor(proprio).unsqueeze(0).to(device)}
 
+    # Image
     if arglist.image:
         # Object position, object orientation must be inferred from rgb and depth images 
         rgb_array, depth_array = get_images(env)
@@ -25,6 +90,11 @@ def construct_observation_tensor(o, env, arglist, stats, device):
         else:
             O['rgb'] = get_tensor(rgb_array).unsqueeze(0).to(device)
             O['depth'] = get_tensor(depth_array).unsqueeze(0).to(device)
+
+    # Text
+    if arglist.text:
+        O['text'] = get_tensor(np.array([target]),dtype=torch.long).unsqueeze(0).to(device)
+    
     return O
 
 def normalize(x, mean, std):
@@ -34,17 +104,8 @@ def get_tensor(x, dtype=torch.float32):
     return torch.from_numpy(x).to(dtype=dtype)
 
 def get_expert_policy(arglist):
-    if arglist.env == "reach-v3":
-        from metaworld.policies.sawyer_reach_v3_policy import SawyerReachV3Policy as ExpertPolicy
-    elif arglist.env == "pick-place-v3":
-        from metaworld.policies.sawyer_pick_place_v3_policy import SawyerPickPlaceV3Policy as ExpertPolicy
-    elif arglist.env == "pick-place-wall-v3":
-        from metaworld.policies.sawyer_pick_place_wall_v3_policy import SawyerPickPlaceWallV3Policy as ExpertPolicy
-    elif arglist.env == "shelf-place-v3":
-        from metaworld.policies.sawyer_shelf_place_v3_policy import SawyerShelfPlaceV3Policy as ExpertPolicy
-    elif arglist.env == "bin-picking-v3":
+    if arglist.env == "bin-picking-v3" or arglist.env == "bin-picking-two-objects-v3" or arglist.env == "bin-picking-three-objects-v3":
         from metaworld.policies.sawyer_bin_picking_v3_policy import SawyerBinPickingV3Policy as ExpertPolicy
-
     return ExpertPolicy()
 
 def print_info(t, o, a, r, o_1, terminated, truncated, info):

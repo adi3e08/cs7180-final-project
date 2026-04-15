@@ -1,3 +1,5 @@
+import warnings
+warnings.filterwarnings("ignore")
 import os
 import time
 import argparse
@@ -6,32 +8,22 @@ import torch
 import gymnasium as gym
 import metaworld
 from src.model import FlowMatchingModel
-from src.utils import get_expert_policy
+from src.utils import get_expert_policy, swap_obs, check_success, add_expt_config
 
 def parse_args():
     parser = argparse.ArgumentParser("Flow matching")
-    parser.add_argument("--env", type=str, default="bin-picking-v3")
-    parser.add_argument("--expt", type=str, default="expt_2", help="expt name")
-    parser.add_argument("--seed", type=int, default=60)
+    parser.add_argument("--expt", type=str, default="expt_4", help="expt name")
+    parser.add_argument("--seed", type=int, default=153)
     parser.add_argument("--ckpt", type=str, default="best.ckpt")
-    parser.add_argument("--episodes", type=int, default=1)
-    # Simulation parameters
-    parser.add_argument("--d-proprio", type=int, default=4, help="proprio dimension, expt_1: 11, expt2: 4")
-    parser.add_argument("--d-act", type=int, default=4, help="action dimension is 4 across meta-world tasks")
-    parser.add_argument("--display", action="store_true", default=True)
-    parser.add_argument("--image", action="store_true", default=True, help="expt_1: False, expt_2: True")
-    parser.add_argument("--camera-id", type=int, default=6, help="6: gripper pov")
-    parser.add_argument("--image-height", type=int, default=240, help="image height")
-    parser.add_argument("--image-width", type=int, default=240, help="image width")
-    parser.add_argument("--text", action="store_true", default=False)
-    # Model parameters
-    parser.add_argument("--T-flow", type=int, default=20, help="flow time steps for sampling")
-    parser.add_argument("--d-model", type=int, default=128, help="hidden size dim, expt_1: 64, expt_2: 128")
-    parser.add_argument("--d-emb", type=int, default=32, help="embedding dim (only for expt_2 currently)")
-    parser.add_argument("--normalize", action="store_true", default=True)
-    return parser.parse_args()
+    parser.add_argument("--episodes", type=int, default=3)
+    parser.add_argument("--display", action=argparse.BooleanOptionalAction)
+    arglist = parser.parse_args()
+    arglist = add_expt_config(arglist)
+    return arglist
 
-def eval_expert_policy(arglist):
+def eval_expert_policy():
+    arglist = parse_args()
+    
     if arglist.display:
         render_mode = "human"
     else:
@@ -39,25 +31,37 @@ def eval_expert_policy(arglist):
 
     env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode=render_mode) 
     policy = get_expert_policy(arglist)
+    colors = ["green", "yellow", "purple"]
 
+    metric = []
     for episode in range(arglist.episodes):
         o, info = env.reset()
+        if arglist.text:
+            target = np.random.choice(arglist.num_objects)
+        else:
+            target = 0
         while True:
+            if arglist.text:
+                o = swap_obs(o, target, arglist)
             a = policy.get_action(o)
             o_1, r, terminated, truncated, info = env.step(a)
             if arglist.display:
                 env.render()
                 time.sleep(0.05)
             o = o_1
-            success = int(info['success'])
+            success = check_success(o_1, target, arglist)
             done = terminated or truncated or success
             if done:
+                metric.append(success)
                 break
-        print(f"episode: {episode}, success: {bool(success)}")
-        
+        print(f"episode: {episode}, target:{colors[target]}, success: {bool(success)}")
+    
+    print(f"Task success rate on {arglist.episodes} episodes: {np.mean(metric)}")
     env.close()
 
-def eval_model(arglist):
+def eval_model():
+    arglist = parse_args()
+
     np.random.seed(arglist.seed)
     torch.set_default_dtype(torch.float32)
     torch.manual_seed(arglist.seed)
@@ -75,6 +79,7 @@ def eval_model(arglist):
                         camera_id=arglist.camera_id,height=arglist.image_height,width=arglist.image_width)
     else:
         env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode=render_mode)  
+    colors = ["green", "yellow", "purple"]
 
     model_dir = os.path.join("./models", arglist.expt)
     checkpoint_path = os.path.join(model_dir, arglist.ckpt)
@@ -86,23 +91,26 @@ def eval_model(arglist):
     metric = []
     for episode in range(arglist.episodes):
         o, info = env.reset()
+        if arglist.text:
+            target = np.random.choice(arglist.num_objects)
+        else:
+            target = 0
         while True:
-            a = model.sample(o, env, device)
+            a = model.sample(o, env, device, target)
             o_1, r, terminated, truncated, info = env.step(a)
             if arglist.display:
                 env.render()
                 time.sleep(0.05)
-            success = int(info['success'])
+            success = check_success(o_1, target, arglist)
             done = terminated or truncated or success
             o = o_1
             if done:
-                print(f"episode: {episode}, success: {bool(success)}")
+                print(f"episode: {episode}, target:{target}, success: {bool(success)}")
                 metric.append(success)
                 break
-    print("Task success rate, ", np.mean(metric))
+    print(f"Task success rate on {arglist.episodes} episodes: {np.mean(metric)}")
     env.close()
 
 if __name__ == '__main__':
-    arglist = parse_args()
-    # eval_expert_policy(arglist)
-    eval_model(arglist)
+    # eval_expert_policy()
+    eval_model()

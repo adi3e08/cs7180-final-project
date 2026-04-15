@@ -8,6 +8,8 @@ This repository contains code and data for the CS7180 final project.
 
 ## Directory Structure
 
+    config/: Experiment specific hyperparameters are stored here in a separate json for each experiment.
+    
     data/: 
     	raw/ : Raw data is stored here in a separate folder for each experiment.
     	
@@ -66,7 +68,7 @@ This repository contains code and data for the CS7180 final project.
 	
 	To train on colab: Upload the project folder to colab and run notebooks/train.ipynb
 
-	Note: For expt_1, both local and colab training are fast. For expt_2, local is quite slow, colab is preferred.
+	Note: For expt_1, cpu is sufficient. For expt_2, expt_3 and expt_4 gpu is very helpful.
 
 4. Evaluate the flow matching model (locally)
 	

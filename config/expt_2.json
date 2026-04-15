@@ -1,0 +1,19 @@
+{
+    "env":          "bin-picking-v3",
+    "image":        true,
+    "text":         false,
+    "num_objects":  1,
+    "camera_id":    6,
+    "image_height": 128,
+    "image_width":  128,
+    "d_proprio":    4,
+    "d_act":        4,
+    "d_model":      128,
+    "d_emb":        32,
+    "num_layers":   3,
+    "T_flow":       20,
+    "normalize":    true,
+    "batch_size":   64,
+    "epochs":       500,
+    "dataset_episodes": 100
+}

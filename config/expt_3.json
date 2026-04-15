@@ -1,0 +1,19 @@
+{
+    "env":          "bin-picking-two-objects-v3",
+    "image":        true,
+    "text":         true,
+    "num_objects":  2,
+    "camera_id":    6,
+    "image_height": 128,
+    "image_width":  128,
+    "d_proprio":    4,
+    "d_act":        4,
+    "d_model":      256,
+    "d_emb":        64,
+    "num_layers":   3,
+    "T_flow":       20,
+    "normalize":    true,
+    "batch_size":   64,
+    "epochs":       750,
+    "dataset_episodes": 200
+}

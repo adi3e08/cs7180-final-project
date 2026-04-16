@@ -35,11 +35,12 @@ def main(arglist):
         env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode="none")        
 
     policy = get_expert_policy(arglist)
-
+    bin_dims = (0.2,0.2, 0.155)
+    cube_dim = (0.05, 0.05, 0.05)
     OBJECTS = {
-    "bin_start": (1, "bin_start_geom"),   # label, geom_name
-    "bin_goal":  (2, "bin_goal_geom"),
-    "obj":       (3, "obj_geom"),
+    "bin_start": (1, "bin_start_geom", bin_dims),   # label, geom_name
+    "bin_goal":  (2, "bin_goal_geom", bin_dims),
+    "obj":       (3, "obj_geom", cube_dim),
     }
     proprio, action = [], []
     if arglist.image:
@@ -67,11 +68,9 @@ def main(arglist):
                 mj_data = env_top.unwrapped.data
                 step_bboxes = []
                 step_labels = []
-                for body_name, (label_id, geom_name) in OBJECTS.items():
+                for body_name, (label_id, geom_name, obj_size) in OBJECTS.items():
                     body_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, body_name)
                     obj_world_pos = mj_data.xpos[body_id]
-                    geom_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_GEOM, geom_name)
-                    obj_size = mj_model.geom_size[geom_id]
                     bbox = make_bbox_from_3d(mj_model, mj_data, "topview", obj_world_pos, obj_size, 
                                             arglist.image_height, arglist.image_width)
 

@@ -77,11 +77,11 @@ def world_to_pixel(model, data, cam_name, obj_world_pos, img_h, img_w):
     cam_pos = data.cam_xpos[cam_id]
     cam_mat = data.cam_xmat[cam_id].reshape(3, 3)
 
-    point_cam = cam_mat.T @ (obj_world_pos - cam_pos)
+    point_cam = cam_mat @ (obj_world_pos - cam_pos)
 
     fovy = model.cam_fovy[cam_id]
     f = (img_h / 2) / np.tan(np.deg2rad(fovy / 2))
-    px = int(f * point_cam[0] / point_cam[2] + img_w / 2)
+    px = int(f * -point_cam[0] / point_cam[2] + img_w / 2)
     py = int(f * point_cam[1] / point_cam[2] + img_h / 2)
     return px, py
 

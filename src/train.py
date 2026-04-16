@@ -54,13 +54,17 @@ class Dataset(torch.utils.data.Dataset):
             if self.arglist.image:
                 o['rgb'] = get_tensor(normalize(self.rgb[n].astype(np.float32), self.rgb_mean, self.rgb_std))
                 o['depth'] = get_tensor(normalize(self.depth[n], self.depth_mean, self.depth_std))
+                o['topdown'] = get_tensor(normalize(self.topdown[n].astype(np.float32), self.topdown_mean, self.topdown_std))
+                o['bboxes'] = get_tensor(self.bboxes[n])
+                o['labels'] = get_tensor(self.labels[n], dtype=torch.long)
         else:
             o =  {'proprio': get_tensor(self.proprio[n])}
             a = get_tensor(self.A[n])
             if self.arglist.image:
                 o['rgb'] = get_tensor(self.rgb[n])
                 o['depth'] = get_tensor(self.depth[n])
-        
+                o['topdown'] = get_tensor(self.topdown[n])
+                o['target'] = { 'boxes': get_tensor(self.bboxes[n]), 'labels': get_tensor(self.labels[n], dtype=torch.long) }
         if self.arglist.text:
             o['text'] = get_tensor(self.T[n])
         

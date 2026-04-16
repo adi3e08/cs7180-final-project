@@ -56,10 +56,11 @@ class FasterRCNNBackbone(nn.Module):
             nn.Linear(128, d_emb)
         )
     
-    def forward(self, images, targets=None):
+    def forward(self, images, targets):
         # Transform images
         image_list = [img for img in images]
-        images, targets = self.transform(image_list, targets)
+        target_list = [target for target in targets] 
+        images, targets = self.transform(image_list, target_list)
         
         # Shared FPN features
         features = self.backbone(images.tensors)
@@ -103,7 +104,7 @@ class MLPVectorField2(nn.Module):
                                  nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU(),
                                  nn.Linear(arglist.d_model, arglist.d_act))
 
-    def forward(self, O, A, tau, targets=None):
+    def forward(self, O, A, tau):
         """
         O['proprio']: B, d_proprio
         O['image']: B, 3, 64, 64
@@ -122,8 +123,8 @@ class MLPVectorField2(nn.Module):
             rgbd = torch.cat((O['rgb'],O['depth']),1)
             image_emb = self.image_encoder(rgbd)
             obs_emb.append(image_emb)
-            if self.arglist.use_backbone:
-                vla_features, detections, rpn_losses, det_losses = self.detection_backbone(O['rgb'], targets)
+            if self.arglist.use_backbone and O.get('target') is not None and O.get('topdown') is not None:
+                vla_features, detections, rpn_losses, det_losses = self.detection_backbone(O['topdown'], O['target'])
                 obs_emb.append(vla_features)
         
         if self.arglist.text:
@@ -146,7 +147,7 @@ class MLPVectorField1(nn.Module):
                                  nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU(),
                                  nn.Linear(arglist.d_model, arglist.d_act))
 
-    def forward(self, O, A, tau, targets=None):
+    def forward(self, O, A, tau):
         return self.mlp(torch.cat([O['proprio'], A, tau], dim=-1)), None
 
 class FlowMatchingModel(nn.Module):
@@ -161,12 +162,11 @@ class FlowMatchingModel(nn.Module):
         self.stats = np.load(os.path.join(data_dir, "stats.npz"), allow_pickle=True)
         self.detections = None
     
-    def loss(self, O, A, targets=None):
+    def loss(self, O, A):
         eps = torch.randn_like(A)
         tau = torch.rand_like(A[:,:1])
         A_noisy = tau * A + (1-tau) * eps
-        
-        action_preds, detection_params = self.vector_field(O, A_noisy, tau, targets)
+        action_preds, detection_params = self.vector_field(O, A_noisy, tau)
         action_loss = nn.functional.mse_loss(action_preds, A - eps)
         detection_loss = 0.0
         if self.arglist.use_backbone and detection_params is not None:

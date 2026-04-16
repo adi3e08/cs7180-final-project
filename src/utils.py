@@ -53,12 +53,14 @@ def print_info(t, o, a, r, o_1, terminated, truncated, info):
           f"new observation: {o_1.shape}, terminated: {terminated}, truncated: {truncated}"
           f"\ninfo: {info}")
 
-def get_images(env):
+def get_images(env, env_top):
     rgb_copy = env.unwrapped.mujoco_renderer.render("rgb_array").copy()
     depth_copy = env.unwrapped.mujoco_renderer.render("depth_array").copy()
     rgb_array   = np.transpose(rgb_copy, (2,0,1))
     depth_array = depth_copy[None,:,:]
-    return rgb_array, depth_array
+    top_rgb = env_top.unwrapped.mujoco_renderer.render("rgb_array").copy()
+    top_rgb = np.transpose(top_rgb, (2, 0, 1))
+    return rgb_array, depth_array, top_rgb
 
 def log_image(t, rgb_array, depth_array, path):
     rgb_img = Image.fromarray(np.transpose(rgb_array, (1,2,0)))
@@ -67,3 +69,24 @@ def log_image(t, rgb_array, depth_array, path):
     depth_array_processed = ((depth_array[0] - depth_array.min()) / (depth_array.max() - depth_array.min()) * 255).astype(np.uint8)
     depth_img = Image.fromarray(depth_array_processed)
     depth_img.save(os.path.join(path, "depth_"+str(t)+".png"))
+    
+    
+def world_to_pixel(model, data, cam_name, obj_world_pos, img_h, img_w):
+    cam_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_CAMERA, cam_name)
+    cam_pos = data.cam_xpos[cam_id]
+    cam_mat = data.cam_xmat[cam_id].reshape(3, 3)
+
+    point_cam = cam_mat.T @ (obj_world_pos - cam_pos)
+
+    fovy = model.cam_fovy[cam_id]
+    f = (img_h / 2) / np.tan(np.deg2rad(fovy / 2))
+    px = int(f * point_cam[0] / point_cam[2] + img_w / 2)
+    py = int(f * point_cam[1] / point_cam[2] + img_h / 2)
+    return px, py
+
+def make_pixel_bbox(px, py, half_w, half_h, img_w, img_h):
+    x1 = max(px - half_w, 0)
+    y1 = max(py - half_h, 0)
+    x2 = min(px + half_w, img_w)
+    y2 = min(py + half_h, img_h)
+    return np.array([x1, y1, x2, y2], dtype=np.int32)

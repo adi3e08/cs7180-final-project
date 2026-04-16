@@ -5,7 +5,8 @@ import gymnasium as gym
 import metaworld
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
-from src.utils import get_expert_policy, get_images
+from src.utils import get_expert_policy, get_images, world_to_pixel, make_pixel_bbox
+import mujoco
 
 def parse_args():
     parser = argparse.ArgumentParser("Create Dataset")
@@ -26,17 +27,29 @@ def main(arglist):
     if arglist.image:
         env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode="rgb_array",\
                         camera_id=arglist.camera_id ,height=arglist.image_height,width=arglist.image_width)
+        env_top = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed,
+                        render_mode="rgb_array", camera_name="topview",height=arglist.image_height, 
+                        width=arglist.image_width)
     else:
         env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode="none")        
 
     policy = get_expert_policy(arglist)
 
+    OBJECTS = {
+    "bin_start": 1,   
+    "bin_goal":  2,   
+    "obj":       3,   
+    }
     proprio, action = [], []
     if arglist.image:
         rgb = []
         depth = []
+        topdown = []
+        bboxes = []
+        labels = []
     # if arglist.text:
     #     T = []
+    episode_starts = [0]
     for episode in tqdm(range(arglist.episodes)):
         o, info = env.reset()
         while True:
@@ -44,21 +57,46 @@ def main(arglist):
                 # In proprio we store only end-effector position and gripper state
                 proprio.append(o[:4].astype(np.float32))
                 # Object position, object orientation must be inferred from rgb and depth images 
-                rgb_array, depth_array = get_images(env)
+                rgb_array, depth_array, top_rgb = get_images(env, env_top)
                 rgb.append(rgb_array.astype(np.uint8))
                 depth.append(depth_array.astype(np.float32))
+                topdown.append(top_rgb.astype(np.uint8))
+                model = env_top.unwrapped.model
+                data = env_top.unwrapped.data
+                step_bboxes = []
+                step_labels = []
+                for body_name, label_id in OBJECTS.items():
+                    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+                    obj_world_pos = data.body_xpos[body_id]
+
+                    px, py = world_to_pixel(
+                        model, data, "topview",  # or your camera name
+                        obj_world_pos,
+                        arglist.image_height, arglist.image_width
+                    )
+
+                    bbox = make_pixel_bbox(px, py, half_w=15, half_h=15,
+                                        img_w=arglist.image_width,
+                                        img_h=arglist.image_height)
+                    step_bboxes.append(bbox)
+                    step_labels.append(label_id)
+
+                bboxes.append(np.array(step_bboxes))   
+                labels.append(np.array(step_labels))   
             else:
                 # In proprio we store end-effector position, gripper state,  
                 # object position, object orientation
                 proprio.append(o[:11].astype(np.float32))
             a = policy.get_action(o)
             o_1, r, terminated, truncated, info = env.step(a)
+            env_top.step(a)
             success = int(info['success'])
             done = terminated or truncated or success
             action.append(a.astype(np.float32))
             o = o_1
             if done:
                 break
+        episode_starts.append(len(proprio))
 
         # if arglist.text:
         #     T.append(env.text_instruction)
@@ -67,10 +105,18 @@ def main(arglist):
     if arglist.image:
         rgb = np.array(rgb)
         depth = np.array(depth)
+        topdown = np.array(topdown)
+        bboxes = np.array(bboxes)
+        labels = np.array(labels)
     # if arglist.text:
     #     T = np.array(T, dtype=np.dtypes.StringDType())
 
-    train_indices, test_indices = train_test_split(np.arange(proprio.shape[0]), test_size=0.2, random_state=arglist.seed)
+    episode_indices = np.arange(arglist.episodes)
+    train_eps, test_eps = train_test_split(episode_indices, test_size=0.2, random_state=arglist.seed)
+
+    train_indices = np.concatenate([np.arange(episode_starts[e], episode_starts[e+1]) for e in train_eps])
+    test_indices = np.concatenate([np.arange(episode_starts[e], episode_starts[e+1]) for e in test_eps])
+    # train_indices, test_indices = train_test_split(np.arange(proprio.shape[0]), test_size=0.2, random_state=arglist.seed)
     train_data = {'proprio': proprio[train_indices], 'action': action[train_indices]}
     test_data = {'proprio': proprio[test_indices], 'action': action[test_indices]}
     if arglist.image:
@@ -79,6 +125,14 @@ def main(arglist):
 
         train_data['depth'] = depth[train_indices]
         test_data['depth'] = depth[test_indices]
+        
+        train_data['bboxes'] = bboxes[train_indices]
+        test_data['bboxes'] = bboxes[test_indices]
+        train_data['labels'] = labels[train_indices]
+        test_data['labels'] = labels[test_indices]
+        
+        train_data['topdown'] = topdown[train_indices]
+        test_data['topdown'] = topdown[test_indices]
 
     # if arglist.text:
     #     train_data['text'] = T[train_indices]
@@ -91,12 +145,15 @@ def main(arglist):
     
     stats['action_mean'] = np.mean(train_data['action'], axis=0)
     stats['action_std']  = np.std(train_data['action'], axis=0) + 1e-6
+    
 
     if arglist.image:
         stats['rgb_mean'] = train_data['rgb'].astype(np.float32).mean(axis=(0,2,3)).reshape(3,1,1)
         stats['rgb_std']  = train_data['rgb'].astype(np.float32).std(axis=(0,2,3)).reshape(3,1,1)  + 1e-6
         stats['depth_mean'] = train_data['depth'].mean(axis=(0,2,3)).reshape(1,1,1)
         stats['depth_std']  = train_data['depth'].std(axis=(0,2,3)).reshape(1,1,1) + 1e-6
+        stats['topdown_mean'] = train_data['topdown'].astype(np.float32).mean(axis=(0,2,3)).reshape(3,1,1)
+        stats['topdown_std']  = train_data['topdown'].astype(np.float32).std(axis=(0,2,3)).reshape(3,1,1) + 1e-6
 
     # 3. Save everything
     data_dir = os.path.join("./data/raw", arglist.expt)

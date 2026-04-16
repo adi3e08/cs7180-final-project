@@ -5,7 +5,8 @@ import gymnasium as gym
 import metaworld
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
-from src.utils import get_expert_policy, get_images, world_to_pixel, make_pixel_bbox
+from src import model
+from src.utils import get_expert_policy, get_images, make_bbox_from_3d
 import mujoco
 
 def parse_args():
@@ -36,9 +37,9 @@ def main(arglist):
     policy = get_expert_policy(arglist)
 
     OBJECTS = {
-    "bin_start": 1,   
-    "bin_goal":  2,   
-    "obj":       3,   
+    "bin_start": (1, "bin_start_geom"),   # label, geom_name
+    "bin_goal":  (2, "bin_goal_geom"),
+    "obj":       (3, "obj_geom"),
     }
     proprio, action = [], []
     if arglist.image:
@@ -52,6 +53,7 @@ def main(arglist):
     episode_starts = [0]
     for episode in tqdm(range(arglist.episodes)):
         o, info = env.reset()
+        env_top.reset()
         while True:
             if arglist.image:
                 # In proprio we store only end-effector position and gripper state
@@ -61,23 +63,19 @@ def main(arglist):
                 rgb.append(rgb_array.astype(np.uint8))
                 depth.append(depth_array.astype(np.float32))
                 topdown.append(top_rgb.astype(np.uint8))
-                model = env_top.unwrapped.model
-                data = env_top.unwrapped.data
+                mj_model = env_top.unwrapped.model
+                mj_data = env_top.unwrapped.data
                 step_bboxes = []
                 step_labels = []
-                for body_name, label_id in OBJECTS.items():
-                    body_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, body_name)
-                    obj_world_pos = data.body_xpos[body_id]
+                for body_name, (label_id, geom_name) in OBJECTS.items():
+                    body_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+                    obj_world_pos = mj_data.xpos[body_id]
+                    geom_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_GEOM, geom_name)
+                    obj_size = mj_model.geom_size[geom_id]
+                    bbox = make_bbox_from_3d(mj_model, mj_data, "topview", obj_world_pos, obj_size, 
+                                            arglist.image_height, arglist.image_width)
 
-                    px, py = world_to_pixel(
-                        model, data, "topview",  # or your camera name
-                        obj_world_pos,
-                        arglist.image_height, arglist.image_width
-                    )
-
-                    bbox = make_pixel_bbox(px, py, half_w=15, half_h=15,
-                                        img_w=arglist.image_width,
-                                        img_h=arglist.image_height)
+                
                     step_bboxes.append(bbox)
                     step_labels.append(label_id)
 

@@ -2,6 +2,7 @@ import os
 import numpy as np
 import torch
 from PIL import Image
+import mujoco
 
 def construct_observation_tensor(o, env, arglist, stats, device):
     if arglist.image:
@@ -83,6 +84,36 @@ def world_to_pixel(model, data, cam_name, obj_world_pos, img_h, img_w):
     px = int(f * point_cam[0] / point_cam[2] + img_w / 2)
     py = int(f * point_cam[1] / point_cam[2] + img_h / 2)
     return px, py
+
+def make_bbox_from_3d(model, data, cam_name, obj_world_pos, obj_size, img_h, img_w):
+    cx, cy, cz = obj_world_pos
+    w, h, d = obj_size  # half-extents or full size depending on your convention
+    
+    # 8 corners of the 3D bounding box
+    corners = np.array([
+        [cx - w/2, cy - h/2, cz - d/2],
+        [cx + w/2, cy - h/2, cz - d/2],
+        [cx - w/2, cy + h/2, cz - d/2],
+        [cx + w/2, cy + h/2, cz - d/2],
+        [cx - w/2, cy - h/2, cz + d/2],
+        [cx + w/2, cy - h/2, cz + d/2],
+        [cx - w/2, cy + h/2, cz + d/2],
+        [cx + w/2, cy + h/2, cz + d/2],
+    ])
+    
+    # Project all corners to pixel space
+    pixels = []
+    for corner in corners:
+        px, py = world_to_pixel(model, data, cam_name, corner, img_h, img_w)
+        pixels.append((px, py))
+    
+    pixels = np.array(pixels)
+    x1 = max(pixels[:, 0].min(), 0)
+    y1 = max(pixels[:, 1].min(), 0)
+    x2 = min(pixels[:, 0].max(), img_w)
+    y2 = min(pixels[:, 1].max(), img_h)
+    
+    return np.array([x1, y1, x2, y2], dtype=np.int32)
 
 def make_pixel_bbox(px, py, half_w, half_h, img_w, img_h):
     x1 = max(px - half_w, 0)

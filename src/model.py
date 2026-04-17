@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from src.utils import construct_observation_tensor
 from torchvision.models.detection import fasterrcnn_resnet50_fpn, FasterRCNN_ResNet50_FPN_Weights
-from torchvision.models.detection import FastRCNNPredictor
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 class CNN1(nn.Module):
     def __init__(self, d_emb):
         super().__init__()

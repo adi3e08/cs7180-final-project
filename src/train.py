@@ -19,7 +19,7 @@ class Dataset(torch.utils.data.Dataset):
     """
     def __init__(self, arglist, mode):
         super().__init__()
-        data_dir = os.path.join("./data/raw", arglist.expt)
+        data_dir = os.path.join("/content/drive/MyDrive/APLDL/data/raw/", arglist.expt)
         dataset = np.load(os.path.join(data_dir, mode+".npz"), allow_pickle=True)
         stats = np.load(os.path.join(data_dir, "stats.npz"), allow_pickle=True)
         self.arglist = arglist

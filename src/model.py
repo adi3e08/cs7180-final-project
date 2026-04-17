@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from src.utils import construct_observation_tensor
 from torchvision.models.detection import fasterrcnn_resnet50_fpn, FasterRCNN_ResNet50_FPN_Weights
-
+from torchvision.models.detection import FastRCNNPredictor
 class CNN1(nn.Module):
     def __init__(self, d_emb):
         super().__init__()
@@ -58,9 +58,7 @@ class FasterRCNNBackbone(nn.Module):
     
     def forward(self, images, targets):
         # Transform images
-        image_list = [img for img in images]
-        target_list = [target for target in targets] 
-        images, targets = self.transform(image_list, target_list)
+        images, targets = self.transform(images, targets)
         
         # Shared FPN features
         features = self.backbone(images.tensors)
@@ -158,7 +156,7 @@ class FlowMatchingModel(nn.Module):
             self.vector_field = MLPVectorField1(arglist)
         elif arglist.expt == "expt_2":
             self.vector_field = MLPVectorField2(arglist)
-        data_dir = os.path.join("./data/raw", arglist.expt)
+        data_dir = os.path.join("/content/drive/MyDrive/APLDL/data/raw/", arglist.expt)
         self.stats = np.load(os.path.join(data_dir, "stats.npz"), allow_pickle=True)
         self.detections = None
     

@@ -27,6 +27,9 @@ class Dataset(torch.utils.data.Dataset):
         if self.arglist.image:
             self.rgb = dataset['rgb']
             self.depth = dataset['depth']
+            self.topdown = dataset['topdown']
+            self.bboxes = dataset['bboxes']
+            self.labels = dataset['labels']
         if self.arglist.text:
             self.T = dataset['text']
         self.A = dataset['action']
@@ -40,6 +43,8 @@ class Dataset(torch.utils.data.Dataset):
                 self.rgb_std = stats['rgb_std']
                 self.depth_mean = stats['depth_mean']
                 self.depth_std = stats['depth_std']
+                self.topdown_mean = stats['topdown_mean']
+                self.topdown_std = stats['topdown_std']
         self.dims = self.A.shape
     
     def __len__(self):
@@ -55,8 +60,7 @@ class Dataset(torch.utils.data.Dataset):
                 o['rgb'] = get_tensor(normalize(self.rgb[n].astype(np.float32), self.rgb_mean, self.rgb_std))
                 o['depth'] = get_tensor(normalize(self.depth[n], self.depth_mean, self.depth_std))
                 o['topdown'] = get_tensor(normalize(self.topdown[n].astype(np.float32), self.topdown_mean, self.topdown_std))
-                o['bboxes'] = get_tensor(self.bboxes[n])
-                o['labels'] = get_tensor(self.labels[n], dtype=torch.long)
+                o['target'] = { 'boxes': get_tensor(self.bboxes[n]), 'labels': get_tensor(self.labels[n], dtype=torch.long) }
         else:
             o =  {'proprio': get_tensor(self.proprio[n])}
             a = get_tensor(self.A[n])
@@ -100,7 +104,23 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=64, help="batch size")
     parser.add_argument("--epochs", type=int, default=500, help="number of epochs to train, expt_1: 100, expt_2: 500")
     parser.add_argument("--evaluate-agent", action="store_true", default=False, help="evaluate agent performance periodically")
+    parser.add_argument("--use_backbone", action="store_true", default=False, help="use backbone for image encoding")
     return parser.parse_args()
+
+
+def collate_fn(batch):
+    Os, As = zip(*batch)
+    O_out = {}
+    for k in Os[0].keys():
+        if k == "target":
+            O_out[k] = [o[k] for o in Os]   
+        elif k == "topdown":
+            O_out[k] = [o[k] for o in Os]  
+        else:
+            O_out[k] = torch.stack([o[k] for o in Os])  
+    A = torch.stack(As)
+
+    return O_out, A
 
 def main():
     arglist = parse_args()
@@ -136,9 +156,9 @@ def main():
         num_workers=0
         pin_memory=False
     train_loader = torch.utils.data.DataLoader(train_data, batch_size=arglist.batch_size, shuffle=True, 
-                                               num_workers=num_workers, pin_memory=pin_memory)
+                                               num_workers=num_workers, pin_memory=pin_memory, collate_fn=collate_fn)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=arglist.batch_size, shuffle=True, 
-                                              num_workers=num_workers, pin_memory=pin_memory)
+                                              num_workers=num_workers, pin_memory=pin_memory, collate_fn=collate_fn)
 
     # check(train_loader, model)
 
@@ -150,8 +170,19 @@ def main():
         model.train()
         train_loss = []
         for O, A in train_loader:
-            O = {k: v.to(device) for k, v in O.items()}
+            for k in O:
+                if k not in ["target", "topdown"]:
+                    O[k] = O[k].to(device)
             A = A.to(device)
+            if "topdown" in O and "topdown" in O:
+                O["topdown"] = [img.to(device) for img in O["topdown"]]
+                O["target"] = [
+                    {
+                        "boxes": t["boxes"].to(device),
+                        "labels": t["labels"].to(device),
+                    }
+                    for t in O["target"]
+                ]
             loss = model.loss(O, A)
             optimizer.zero_grad()
             loss.backward()
@@ -165,7 +196,9 @@ def main():
         model.eval()
         test_loss = []
         for O, A in test_loader:
-            O = {k: v.to(device) for k, v in O.items()}
+            for k in O:
+                if k not in ["target", "topdown"]:
+                    O[k] = O[k].to(device)
             A = A.to(device)
             loss = model.loss(O, A)
             test_loss.append(loss.item())

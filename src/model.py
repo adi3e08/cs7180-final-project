@@ -122,8 +122,10 @@ class MLPVectorField2(nn.Module):
             image_emb = self.image_encoder(rgbd)
             obs_emb.append(image_emb)
             if self.arglist.use_backbone and O.get('target') is not None and O.get('topdown') is not None:
+                print("hello")
                 vla_features, detections, rpn_losses, det_losses = self.detection_backbone(O['topdown'], O['target'])
                 obs_emb.append(vla_features)
+                print("bye")
         
         if self.arglist.text:
             text_emb = self.text_encoder(O['text'])
@@ -171,7 +173,7 @@ class FlowMatchingModel(nn.Module):
             self.detections, rpn_losses, det_losses = detection_params
             if rpn_losses is not None and det_losses is not None:
                 detection_loss = sum(rpn_losses.values()) + sum(det_losses.values())
-        return action_loss + detection_loss
+        return action_loss, detection_loss
 
     def rk1(self, O, A, tau, h):
         k1, _ = self.vector_field(O, A, tau)

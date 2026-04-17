@@ -132,8 +132,8 @@ def main():
 
     model_dir = os.path.join("./models", arglist.expt)
     results_dir = os.path.join("./results", arglist.expt)
-    os.mkdir(model_dir)
-    os.mkdir(results_dir)
+    os.makedirs(model_dir, exist_ok=True)
+    os.makedirs(results_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=results_dir)
 
     if arglist.evaluate_agent:
@@ -159,7 +159,7 @@ def main():
                                                num_workers=num_workers, pin_memory=pin_memory, collate_fn=collate_fn)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=arglist.batch_size, shuffle=True, 
                                               num_workers=num_workers, pin_memory=pin_memory, collate_fn=collate_fn)
-
+    print("Data loaded")
     # check(train_loader, model)
 
     # Loop over epochs
@@ -169,6 +169,8 @@ def main():
         # Training
         model.train()
         train_loss = []
+        action_losses = []
+        detection_losses = []
         for O, A in train_loader:
             for k in O:
                 if k not in ["target", "topdown"]:
@@ -183,26 +185,40 @@ def main():
                     }
                     for t in O["target"]
                 ]
-            loss = model.loss(O, A)
+            action_loss, detection_loss = model.loss(O, A)
+            loss = action_loss+ detection_loss
             optimizer.zero_grad()
             loss.backward()
             # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             train_loss.append(loss.item())
+            action_losses.append(action_loss.item())
+            detection_losses.append(detection_loss.item())
         train_loss = np.array(train_loss).mean()
+        action_loss = np.array(action_losses).mean()
+        detection_loss = np.array(detection_losses).mean()
+        print("train loss: ", train_loss, "action_loss: ", action_loss, "detection_loss: ", detection_loss)
         writer.add_scalar('train_loss', train_loss, epoch)
 
         # Testing
         model.eval()
         test_loss = []
+        action_losses = []
+        detection_losses = []
         for O, A in test_loader:
             for k in O:
                 if k not in ["target", "topdown"]:
                     O[k] = O[k].to(device)
             A = A.to(device)
-            loss = model.loss(O, A)
+            action_loss, detection_loss = model.loss(O, A)
+            loss = action_loss+ detection_loss
             test_loss.append(loss.item())
+            action_losses.append(action_loss.item())
+            detection_losses.append(detection_loss.item())
         test_loss = np.array(test_loss).mean()
+        action_loss = np.array(action_losses).mean()
+        detection_loss = np.array(detection_losses).mean()
+        print("test loss: ", test_loss, "action_loss: ", action_loss, "detection_loss: ", detection_loss)
         writer.add_scalar('test_loss', test_loss, epoch)
         if test_loss < best_test_loss:
             torch.save({'model' : model.state_dict(),

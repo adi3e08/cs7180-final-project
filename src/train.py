@@ -8,6 +8,7 @@ import metaworld
 import sys
 from src.model import FlowMatchingModel
 from src.utils import normalize, get_tensor
+import tqdm
 
 class Dataset(torch.utils.data.Dataset):
     """
@@ -171,7 +172,7 @@ def main():
         train_loss = []
         action_losses = []
         detection_losses = []
-        for O, A in train_loader:
+        for O, A in tqdm(train_loader, total=len(train_loader), desc="Training"):
             for k in O:
                 if k not in ["target", "topdown"]:
                     O[k] = O[k].to(device)
@@ -205,10 +206,20 @@ def main():
         test_loss = []
         action_losses = []
         detection_losses = []
-        for O, A in test_loader:
+        for O, A in tqdm(test_loader, total=len(test_loader), desc="Testing"):
             for k in O:
                 if k not in ["target", "topdown"]:
                     O[k] = O[k].to(device)
+            if "topdown" in O and "topdown" in O:
+                
+                O["topdown"] = [img.to(device) for img in O["topdown"]]
+                O["target"] = [
+                    {
+                        "boxes": t["boxes"].to(device),
+                        "labels": t["labels"].to(device),
+                    }
+                    for t in O["target"]
+                ]
             A = A.to(device)
             action_loss, detection_loss = model.loss(O, A)
             loss = action_loss+ detection_loss

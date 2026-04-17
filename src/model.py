@@ -86,6 +86,8 @@ class MLPVectorField2(nn.Module):
             self.image_encoder = CNN1(arglist.d_emb)
             if arglist.use_backbone:
                 self.detection_backbone = FasterRCNNBackbone(n_classes=5, d_emb=arglist.d_emb)   
+                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                self.detection_backbone = self.detection_backbone.to(device)
                 input_dim = arglist.d_emb * (3 + int(self.arglist.image) + int(self.arglist.use_backbone) + int(self.arglist.text))
             
         if arglist.text:
@@ -168,11 +170,23 @@ class FlowMatchingModel(nn.Module):
         A_noisy = tau * A + (1-tau) * eps
         action_preds, detection_params = self.vector_field(O, A_noisy, tau)
         action_loss = nn.functional.mse_loss(action_preds, A - eps)
-        detection_loss = 0.0
+        detection_loss = torch.tensor(0.0, device=action_preds.device)
+        rpn_loss, det_loss = None, None
         if self.arglist.use_backbone and detection_params is not None:
-            self.detections, rpn_losses, det_losses = detection_params
-            if rpn_losses is not None and det_losses is not None:
-                detection_loss = sum(rpn_losses.values()) + sum(det_losses.values())
+          self.detections, rpn_losses, det_losses = detection_params
+          rpn_loss = 0.0
+          det_loss = 0.0
+          if isinstance(rpn_losses, dict) and len(rpn_losses) > 0:
+              rpn_loss = sum(v for v in rpn_losses.values() if v is not None)
+
+          if isinstance(det_losses, dict) and len(det_losses) > 0:
+              det_loss = sum(v for v in det_losses.values() if v is not None)
+        
+          detection_loss = detection_loss + (
+              rpn_loss if torch.is_tensor(rpn_loss) else torch.tensor(rpn_loss, device=action_preds.device)
+          ) + (
+              det_loss if torch.is_tensor(det_loss) else torch.tensor(det_loss, device=action_preds.device)
+          )
         return action_loss, detection_loss
 
     def rk1(self, O, A, tau, h):

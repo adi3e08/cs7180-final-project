@@ -7,6 +7,7 @@ import gymnasium as gym
 import metaworld
 from src.model import FlowMatchingModel
 from src.utils import get_expert_policy
+import imageio
 
 def parse_args():
     parser = argparse.ArgumentParser("Flow matching")
@@ -18,7 +19,7 @@ def parse_args():
     # Simulation parameters
     parser.add_argument("--d-proprio", type=int, default=4, help="proprio dimension, expt_1: 11, expt2: 4")
     parser.add_argument("--d-act", type=int, default=4, help="action dimension is 4 across meta-world tasks")
-    parser.add_argument("--display", action="store_true", default=True)
+    parser.add_argument("--display", action="store_true", default=False)
     parser.add_argument("--image", action="store_true", default=True, help="expt_1: False, expt_2: True")
     parser.add_argument("--camera-id", type=int, default=6, help="6: gripper pov")
     parser.add_argument("--image-height", type=int, default=240, help="image height")
@@ -29,6 +30,7 @@ def parse_args():
     parser.add_argument("--d-model", type=int, default=128, help="hidden size dim, expt_1: 64, expt_2: 128")
     parser.add_argument("--d-emb", type=int, default=32, help="embedding dim (only for expt_2 currently)")
     parser.add_argument("--normalize", action="store_true", default=True)
+    parser.add_argument("--use_backbone", action="store_true", default=True, help="use backbone for image encoding")
     return parser.parse_args()
 
 def eval_expert_policy(arglist):
@@ -81,21 +83,33 @@ def eval_model(arglist):
 
     model_dir = os.path.join("./models", arglist.expt)
     checkpoint_path = os.path.join(model_dir, arglist.ckpt)
+    print(f"Loading model from {checkpoint_path}")
+    
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    
     model = FlowMatchingModel(arglist).to(device)
     model.load_state_dict(checkpoint['model'])
     model.eval()
-
     metric = []
+    all_gifs = []
     for episode in range(arglist.episodes):
         o, info = env.reset()
         env_top.reset()
+        frames = []
+        step=0
         while True:
             a = model.sample(o, env, env_top, device)
             o_1, r, terminated, truncated, info = env.step(a)
+            env_top.step(a)
             if arglist.display:
                 env.render()
                 time.sleep(0.05)
+            else:
+              frame = env.render()  
+              if frame is not None:
+                  frames.append(frame)
+            step+=1
+            print(f"step {step}")
             success = int(info['success'])
             done = terminated or truncated or success
             o = o_1
@@ -103,6 +117,9 @@ def eval_model(arglist):
                 print(f"episode: {episode}, success: {bool(success)}")
                 metric.append(success)
                 break
+        gif_path = f"/content/episode_{episode}.gif"
+        imageio.mimsave(gif_path, frames, fps=20)
+        print(f"Saved GIF: {gif_path}")
     print("Task success rate, ", np.mean(metric))
     env.close()
 

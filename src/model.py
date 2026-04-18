@@ -123,7 +123,7 @@ class MLPVectorField2(nn.Module):
             rgbd = torch.cat((O['rgb'],O['depth']),1)
             image_emb = self.image_encoder(rgbd)
             obs_emb.append(image_emb)
-            if self.arglist.use_backbone and O.get('target') is not None and O.get('topdown') is not None:
+            if self.arglist.use_backbone and 'target' in O and 'topdown' in O:
                 vla_features, detections, rpn_losses, det_losses = self.detection_backbone(O['topdown'], O['target'])
                 obs_emb.append(vla_features)
         

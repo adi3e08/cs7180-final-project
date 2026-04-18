@@ -85,7 +85,7 @@ class MLPVectorField2(nn.Module):
         if arglist.image:
             self.image_encoder = CNN1(arglist.d_emb)
             if arglist.use_backbone:
-                self.detection_backbone = FasterRCNNBackbone(n_classes=5, d_emb=arglist.d_emb)   
+                self.detection_backbone = FasterRCNNBackbone(n_classes=4, d_emb=arglist.d_emb)   
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
                 self.detection_backbone = self.detection_backbone.to(device)
                 input_dim = arglist.d_emb * (3 + int(self.arglist.image) + int(self.arglist.use_backbone) + int(self.arglist.text))

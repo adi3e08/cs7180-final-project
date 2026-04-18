@@ -42,7 +42,7 @@ def get_expert_policy(arglist):
     if arglist.env == "reach-v3":
         from metaworld.policies.sawyer_reach_v3_policy import SawyerReachV3Policy as ExpertPolicy
     elif arglist.env == "pick-place-v3":
-        from metaworld.policies.sawyer_pick_place_v3_policy import SawyerPickPlaceV3Policy as ExpertPolicy
+        from metaworld.envs.sawyer_bin_picking_v3_three_objects import SawyerBinPickingThreeObjEnvV3 as ExpertPolicy
     elif arglist.env == "pick-place-wall-v3":
         from metaworld.policies.sawyer_pick_place_wall_v3_policy import SawyerPickPlaceWallV3Policy as ExpertPolicy
     elif arglist.env == "shelf-place-v3":

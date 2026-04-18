@@ -8,7 +8,10 @@ import metaworld
 import sys
 from src.model import FlowMatchingModel
 from src.utils import normalize, get_tensor
-import tqdm
+from tqdm import tqdm
+
+
+
 
 class Dataset(torch.utils.data.Dataset):
     """
@@ -26,9 +29,13 @@ class Dataset(torch.utils.data.Dataset):
         self.arglist = arglist
         self.proprio = dataset['proprio']
         if self.arglist.image:
+
             self.rgb = dataset['rgb']
+            
             self.depth = dataset['depth']
+           
             self.topdown = dataset['topdown']
+          
             self.bboxes = dataset['bboxes']
             self.labels = dataset['labels']
         if self.arglist.text:
@@ -106,6 +113,7 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=500, help="number of epochs to train, expt_1: 100, expt_2: 500")
     parser.add_argument("--evaluate-agent", action="store_true", default=False, help="evaluate agent performance periodically")
     parser.add_argument("--use_backbone", action="store_true", default=False, help="use backbone for image encoding")
+    parser.add_argument("--ckpt", type=str, default="best.ckpt")
     return parser.parse_args()
 
 

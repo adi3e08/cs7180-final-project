@@ -166,7 +166,7 @@ def main():
     # Loop over epochs
     best_test_loss = np.inf
     for epoch in range(arglist.epochs):
-        
+        print("Epoch ", epoch + 1, "/", arglist.epochs)
         # Training
         model.train()
         train_loss = []

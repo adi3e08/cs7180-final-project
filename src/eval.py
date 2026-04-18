@@ -73,6 +73,9 @@ def eval_model(arglist):
     if arglist.image:
         env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode=render_mode,\
                         camera_id=arglist.camera_id,height=arglist.image_height,width=arglist.image_width)
+        env_top = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed,
+                        render_mode="rgb_array", camera_name="topview",height=arglist.image_height, 
+                        width=arglist.image_width)
     else:
         env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode=render_mode)  
 
@@ -86,8 +89,9 @@ def eval_model(arglist):
     metric = []
     for episode in range(arglist.episodes):
         o, info = env.reset()
+        env_top.reset()
         while True:
-            a = model.sample(o, env, device)
+            a = model.sample(o, env, env_top, device)
             o_1, r, terminated, truncated, info = env.step(a)
             if arglist.display:
                 env.render()

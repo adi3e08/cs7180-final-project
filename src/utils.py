@@ -4,7 +4,7 @@ import torch
 from PIL import Image
 import mujoco
 
-def construct_observation_tensor(o, env, arglist, stats, device):
+def construct_observation_tensor(o, env, env_top, arglist, stats, device):
     if arglist.image:
         # In proprio we store only end-effector position and gripper state
         proprio = o[:4]
@@ -19,13 +19,17 @@ def construct_observation_tensor(o, env, arglist, stats, device):
 
     if arglist.image:
         # Object position, object orientation must be inferred from rgb and depth images 
-        rgb_array, depth_array = get_images(env)
+        rgb_array, depth_array, top_rgb = get_images(env, env_top)
         if arglist.normalize:
             O['rgb'] = get_tensor(normalize(rgb_array.astype(np.float32), stats['rgb_mean'], stats['rgb_std'])).unsqueeze(0).to(device)
             O['depth'] = get_tensor(normalize(depth_array, stats['depth_mean'], stats['depth_std'])).unsqueeze(0).to(device)
+            O['topdown'] = [get_tensor(normalize(top_rgb, stats['topdown_mean'], stats['topdown_std'])).to(device)]
+            O["target"] = None
         else:
             O['rgb'] = get_tensor(rgb_array).unsqueeze(0).to(device)
             O['depth'] = get_tensor(depth_array).unsqueeze(0).to(device)
+            O['topdown'] = [get_tensor(top_rgb).unsqueeze(0).to(device)]
+            O["target"] = None
     return O
 
 def normalize(x, mean, std):

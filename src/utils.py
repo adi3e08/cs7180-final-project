@@ -39,16 +39,9 @@ def get_tensor(x, dtype=torch.float32):
     return torch.from_numpy(x).to(dtype=dtype)
 
 def get_expert_policy(arglist):
-    if arglist.env == "reach-v3":
-        from metaworld.policies.sawyer_reach_v3_policy import SawyerReachV3Policy as ExpertPolicy
-    elif arglist.env == "pick-place-v3":
-        from metaworld.envs.sawyer_bin_picking_v3_three_objects import SawyerBinPickingThreeObjEnvV3 as ExpertPolicy
-    elif arglist.env == "pick-place-wall-v3":
-        from metaworld.policies.sawyer_pick_place_wall_v3_policy import SawyerPickPlaceWallV3Policy as ExpertPolicy
-    elif arglist.env == "shelf-place-v3":
-        from metaworld.policies.sawyer_shelf_place_v3_policy import SawyerShelfPlaceV3Policy as ExpertPolicy
-    elif arglist.env == "bin-picking-v3":
+    if arglist.env == "bin-picking-v3" or arglist.env == "bin-picking-two-objects-v3" or arglist.env == "bin-picking-three-objects-v3":
         from metaworld.policies.sawyer_bin_picking_v3_policy import SawyerBinPickingV3Policy as ExpertPolicy
+    return ExpertPolicy()
 
     return ExpertPolicy()
 

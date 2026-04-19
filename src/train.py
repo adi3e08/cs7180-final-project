@@ -186,6 +186,16 @@ def main():
         {"params": backbone_params, "lr": 1e-4, "weight_decay": 1e-4},
         {"params": head_params, "lr": 3e-4, "weight_decay": 0.0},
     ])
+    
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer,
+    mode='min',
+    factor=0.5,     # reduce LR by half
+    patience=3,     # wait 3 epochs
+    threshold=1e-3,
+    min_lr=1e-6,
+    verbose=True
+)
 
     train_data = Dataset(arglist, "train")
     test_data = Dataset(arglist, "test")
@@ -268,6 +278,7 @@ def main():
                 test_loss.append(loss.item())
             test_loss = np.array(test_loss).mean()
         print("train loss: ", train_loss, " |   test loss: ", test_loss)
+        scheduler.step(test_loss)
         # model.eval()
         # test_loss = []
         # action_losses = []

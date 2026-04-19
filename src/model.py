@@ -105,9 +105,13 @@ class MLPVectorField2(nn.Module):
         self.action_encoder = nn.Linear(arglist.d_act, arglist.d_emb)
 
         # Core vector field
-        self.mlp = nn.Sequential(nn.Linear(input_dim, arglist.d_model), nn.SiLU(),
-                                 nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU(),
-                                 nn.Linear(arglist.d_model, arglist.d_act))
+
+        # Core vector field
+        layers = [nn.Linear(input_dim, arglist.d_model), nn.SiLU()]
+        for _ in range(arglist.num_layers - 2):
+            layers += [nn.Linear(arglist.d_model, arglist.d_model), nn.SiLU()]
+        layers.append(nn.Linear(arglist.d_model, arglist.d_act))
+        self.mlp = nn.Sequential(*layers)
 
     def forward(self, O, A, tau):
         """

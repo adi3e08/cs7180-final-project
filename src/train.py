@@ -66,14 +66,8 @@ class Dataset(torch.utils.data.Dataset):
             o =  {'proprio': get_tensor(normalize(self.proprio[n], self.proprio_mean, self.proprio_std))}
             a = get_tensor(normalize(self.A[n], self.A_mean, self.A_std))
             if self.arglist.image:
-                rgb  = get_tensor(normalize(self.rgb[n].astype(np.float32), self.rgb_mean, self.rgb_std))
-                depth = get_tensor(normalize(self.depth[n], self.depth_mean, self.depth_std))
-                
-                rgb = F.interpolate(rgb.unsqueeze(0), size=(128,128), mode='bilinear', align_corners=False).squeeze(0)
-                depth = F.interpolate(depth.unsqueeze(0), size=(128,128), mode='nearest').squeeze(0)
-
-                o['rgb'] = rgb
-                o['depth'] = depth
+                o['rgb'] = get_tensor(normalize(self.rgb[n].astype(np.float32), self.rgb_mean, self.rgb_std))
+                o['depth'] = get_tensor(normalize(self.depth[n], self.depth_mean, self.depth_std))
 
                 o['topdown'] = get_tensor(normalize(self.topdown[n].astype(np.float32), self.topdown_mean, self.topdown_std))
                 o['target'] = { 'boxes': get_tensor(self.bboxes[n]), 'labels': get_tensor(self.labels[n], dtype=torch.long) }
@@ -82,12 +76,8 @@ class Dataset(torch.utils.data.Dataset):
             o =  {'proprio': get_tensor(self.proprio[n])}
             a = get_tensor(self.A[n])
             if self.arglist.image:
-                rgb = get_tensor(self.rgb[n])
-                depth = get_tensor(self.depth[n])
-                rgb = F.interpolate(rgb.unsqueeze(0), size=(128,128), mode='bilinear', align_corners=False).squeeze(0)
-                depth = F.interpolate(depth.unsqueeze(0), size=(128,128), mode='nearest').squeeze(0)
-                o['rgb'] = rgb
-                o['depth'] = depth
+                o['rgb'] = get_tensor(self.rgb[n])
+                o['depth'] = get_tensor(self.depth[n])
                 
                 o['topdown'] = get_tensor(self.topdown[n])
                 o['target'] = { 'boxes': get_tensor(self.bboxes[n]), 'labels': get_tensor(self.labels[n], dtype=torch.long) }

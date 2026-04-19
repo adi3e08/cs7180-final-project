@@ -130,6 +130,7 @@ def parse_args():
     parser.add_argument("--use_backbone", action="store_true", default=False, help="use backbone for image encoding")
     parser.add_argument("--ckpt", type=str, default="best.ckpt")
     parser.add_argument("--num_layers", type=int, default=4, help="number of layers in the MLP")
+    parser.add_argument("--num_objects", type=int, default=3, help="number of objects in the scene")
     return parser.parse_args()
 
 

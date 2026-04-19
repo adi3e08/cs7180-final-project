@@ -198,8 +198,8 @@ class FlowMatchingModel(nn.Module):
         return A + h * ((1.0 - 1.0/(2.0*alpha))*k1 + (1.0/(2.0*alpha))*k2)
 
     @torch.no_grad()
-    def sample(self, o, env, env_top, device):
-        O = construct_observation_tensor(o, env, env_top, self.arglist, self.stats, device)
+    def sample(self, o, env, env_top, device, target=None):
+        O = construct_observation_tensor(o, env, env_top, self.arglist, self.stats, device, target)
         n_samples = 1
         h = 1 / self.arglist.T_flow
         tau = torch.zeros(n_samples, 1, device=device)

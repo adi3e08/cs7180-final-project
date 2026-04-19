@@ -4,7 +4,7 @@ import torch
 from PIL import Image
 import mujoco
 
-def construct_observation_tensor(o, env, env_top, arglist, stats, device):
+def construct_observation_tensor(o, env, env_top, arglist, stats, device, target=None):
     if arglist.image:
         # In proprio we store only end-effector position and gripper state
         proprio = o[:4]
@@ -30,6 +30,9 @@ def construct_observation_tensor(o, env, env_top, arglist, stats, device):
             O['depth'] = get_tensor(depth_array).unsqueeze(0).to(device)
             O['topdown'] = [get_tensor(top_rgb).unsqueeze(0).to(device)]
             O["target"] = None
+     # Text
+    if arglist.text:
+        O['text'] = get_tensor(np.array([target]),dtype=torch.long).unsqueeze(0).to(device)
     return O
 
 def normalize(x, mean, std):
@@ -118,3 +121,32 @@ def make_pixel_bbox(px, py, half_w, half_h, img_w, img_h):
     x2 = min(px + half_w, img_w)
     y2 = min(py + half_h, img_h)
     return np.array([x1, y1, x2, y2], dtype=np.int32)
+
+
+def swap_obs(o, target, arglist):
+    # Meta-world's expert policy goes to the first object in the observation by default
+    # Hence, when the target is not the first object, we swap the target with the first object
+    # in the observation vector
+    if target == 0:
+        return o
+    elif arglist.num_objects == 2 and target == 1:
+        new_o = o.copy()
+        new_o[4:11] = o[11:18]
+        new_o[11:18] = o[4:11]
+        new_o[22:29] = o[29:36]
+        new_o[29:36] = o[22:29]
+        return new_o
+    elif arglist.num_objects == 3 and target == 1:
+        new_o = o.copy()
+        new_o[4:11] = o[11:18]
+        new_o[11:18] = o[4:11]
+        new_o[29:36] = o[36:43]
+        new_o[36:43] = o[29:36]
+        return new_o
+    elif arglist.num_objects == 3 and target == 2:
+        new_o = o.copy()
+        new_o[4:11] = o[18:25]
+        new_o[18:25] = o[4:11]
+        new_o[29:36] = o[43:50]
+        new_o[43:50] = o[29:36]
+        return new_o

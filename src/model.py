@@ -38,6 +38,10 @@ class FasterRCNNBackbone(nn.Module):
         # Freeze backbone, unfreeze detection head
         for param in fasterrcnn.backbone.parameters():
             param.requires_grad = False
+        for param in fasterrcnn.backbone.body.layer4.parameters():
+            param.requires_grad = True
+        for param in fasterrcnn.backbone.fpn.parameters():
+            param.requires_grad = True
         for param in fasterrcnn.roi_heads.box_predictor.parameters():
             param.requires_grad = True
         
@@ -53,6 +57,7 @@ class FasterRCNNBackbone(nn.Module):
             nn.ReLU(),
             nn.AdaptiveAvgPool2d((1, 1)),
             nn.Flatten(),
+            nn.Dropout(p=0.1),
             nn.Linear(128, d_emb)
         )
     
@@ -85,7 +90,7 @@ class MLPVectorField2(nn.Module):
         if arglist.image:
             self.image_encoder = CNN1(arglist.d_emb)
             if arglist.use_backbone:
-                self.detection_backbone = FasterRCNNBackbone(n_classes=4, d_emb=arglist.d_emb)   
+                self.detection_backbone = FasterRCNNBackbone(n_classes=6, d_emb=arglist.d_emb)   
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
                 self.detection_backbone = self.detection_backbone.to(device)
                 input_dim = arglist.d_emb * (3 + int(self.arglist.image) + int(self.arglist.use_backbone) + int(self.arglist.text))

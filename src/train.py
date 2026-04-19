@@ -38,8 +38,9 @@ class Dataset(torch.utils.data.Dataset):
           
             self.bboxes = dataset['bboxes']
             self.labels = dataset['labels']
+            # self.overlap_labels = dataset['overlap_labels']
         if self.arglist.text:
-            self.T = dataset['text']
+            self.text = np.expand_dims(dataset['text'],axis=1)
         self.A = dataset['action']
         if self.arglist.normalize:
             self.proprio_mean = stats['proprio_mean']
@@ -69,6 +70,7 @@ class Dataset(torch.utils.data.Dataset):
                 o['depth'] = get_tensor(normalize(self.depth[n], self.depth_mean, self.depth_std))
                 o['topdown'] = get_tensor(normalize(self.topdown[n].astype(np.float32), self.topdown_mean, self.topdown_std))
                 o['target'] = { 'boxes': get_tensor(self.bboxes[n]), 'labels': get_tensor(self.labels[n], dtype=torch.long) }
+                # o['overlap_labels'] = get_tensor(self.overlap_labels[n], dtype=torch.long)
         else:
             o =  {'proprio': get_tensor(self.proprio[n])}
             a = get_tensor(self.A[n])
@@ -77,8 +79,9 @@ class Dataset(torch.utils.data.Dataset):
                 o['depth'] = get_tensor(self.depth[n])
                 o['topdown'] = get_tensor(self.topdown[n])
                 o['target'] = { 'boxes': get_tensor(self.bboxes[n]), 'labels': get_tensor(self.labels[n], dtype=torch.long) }
+                # o['overlap_labels'] = get_tensor(self.overlap_labels[n], dtype=torch.long)
         if self.arglist.text:
-            o['text'] = get_tensor(self.T[n])
+            o['text'] = get_tensor(self.text[n],dtype=torch.long)
         
         return o, a
 
@@ -153,7 +156,19 @@ def main():
             env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode='none')
     
     model = FlowMatchingModel(arglist).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
+    backbone_params = []
+    head_params = []
+
+    for name, p in model.named_parameters():
+        if "backbone" in name:
+            backbone_params.append(p)
+        else:
+            head_params.append(p)
+
+    optimizer = torch.optim.AdamW([
+        {"params": backbone_params, "lr": 1e-4, "weight_decay": 1e-4},
+        {"params": head_params, "lr": 3e-4, "weight_decay": 0.0},
+    ])
 
     train_data = Dataset(arglist, "train")
     test_data = Dataset(arglist, "test")

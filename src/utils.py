@@ -150,3 +150,29 @@ def swap_obs(o, target, arglist):
         new_o[29:36] = o[43:50]
         new_o[43:50] = o[29:36]
         return new_o
+    
+def check_success(o_1, target, arglist):
+    # Meta-world's info['success'] only checks if the default object (green) reached the goal
+    # This does not work when we have multiple objects
+    # Hence we define our function, which checks if the actual target object reached the goal
+    
+    if arglist.num_objects == 1:
+        obj_pos = o_1[4:7]   # obj1 position
+
+    elif arglist.num_objects == 2:
+        if target == 0:
+            obj_pos = o_1[4:7]   # obj1 position
+        else:
+            obj_pos = o_1[11:14] # obj2 position
+    elif arglist.num_objects == 3:
+        if target == 0:
+            obj_pos = o_1[4:7]   # obj1 position
+        elif target == 1:
+            obj_pos = o_1[11:14] # obj2 position                    
+        elif target == 2:
+            obj_pos = o_1[18:21] # obj3 position
+    
+    goal_pos = o_1[-3:]
+    correct_obj_success = float(np.linalg.norm(obj_pos - goal_pos) < 0.05)
+    success = int(correct_obj_success)
+    return success

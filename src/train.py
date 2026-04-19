@@ -6,7 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 import gymnasium as gym
 import metaworld
 import sys
-from src.model import FlowMatchingModel
+from src.model import FlowMatchingModel, FasterRCNNBackbone
 from src.utils import normalize, get_tensor
 from tqdm import tqdm
 import torch.nn.functional as F
@@ -169,7 +169,10 @@ def main():
         else:
             env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode='none')
     
-    model = FlowMatchingModel(arglist).to(device)
+    # model = FlowMatchingModel(arglist).to(device)
+    model = FasterRCNNBackbone(n_classes=6, d_emb=arglist.d_emb)   
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = model.to(device)
     backbone_params = []
     head_params = []
 
@@ -223,51 +226,77 @@ def main():
                     }
                     for t in O["target"]
                 ]
-            action_loss, detection_loss = model.loss(O, A)
-            loss = action_loss+ detection_loss
+            # action_loss, detection_loss = model.loss(O, A)
+            # loss = action_loss+ detection_loss
+            vla_features, detections, rpn_losses, det_losses = model(O['topdown'], O['target'])
+            loss = sum(rpn_losses.values()) + sum(det_losses.values())
             optimizer.zero_grad()
             loss.backward()
             # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             train_loss.append(loss.item())
-            action_losses.append(action_loss.item())
-            detection_losses.append(detection_loss.item())
+            # action_losses.append(action_loss.item())
+            # detection_losses.append(detection_loss.item())
         train_loss = np.array(train_loss).mean()
-        action_loss = np.array(action_losses).mean()
-        detection_loss = np.array(detection_losses).mean()
-        print("train loss: ", train_loss, "action_loss: ", action_loss, "detection_loss: ", detection_loss)
-        writer.add_scalar('train_loss', train_loss, epoch)
+        
+        # action_loss = np.array(action_losses).mean()
+        # detection_loss = np.array(detection_losses).mean()
+        # print("train loss: ", train_loss, "action_loss: ", action_loss, "detection_loss: ", detection_loss)
+        # writer.add_scalar('train_loss', train_loss, epoch)
 
         # Testing
-        model.eval()
-        test_loss = []
-        action_losses = []
-        detection_losses = []
-        for O, A in tqdm(test_loader, total=len(test_loader), desc="Testing"):
-            for k in O:
-                if k not in ["target", "topdown"]:
-                    O[k] = O[k].to(device)
-            if "topdown" in O and "topdown" in O:
+        
+        with torch.no_grad():
+            test_loss = []
+            for O, A in tqdm(test_loader, total=len(test_loader), desc="Testing"):
+                for k in O:
+                    if k not in ["target", "topdown"]:
+                        O[k] = O[k].to(device)
+                if "topdown" in O and "topdown" in O:
+                    
+                    O["topdown"] = [img.to(device) for img in O["topdown"]]
+                    O["target"] = [
+                        {
+                            "boxes": t["boxes"].to(device),
+                            "labels": t["labels"].to(device),
+                        }
+                        for t in O["target"]
+                    ]
+                A = A.to(device)
+                vla_features, detections, rpn_losses, det_losses = model(O['topdown'], O['target'])
+                loss = sum(rpn_losses.values()) + sum(det_losses.values())
+                test_loss.append(loss.item())
+            test_loss = np.array(test_loss).mean()
+        print("train loss: ", train_loss, " |   test loss: ", test_loss)
+        # model.eval()
+        # test_loss = []
+        # action_losses = []
+        # detection_losses = []
+        # for O, A in tqdm(test_loader, total=len(test_loader), desc="Testing"):
+        #     for k in O:
+        #         if k not in ["target", "topdown"]:
+        #             O[k] = O[k].to(device)
+        #     if "topdown" in O and "topdown" in O:
                 
-                O["topdown"] = [img.to(device) for img in O["topdown"]]
-                O["target"] = [
-                    {
-                        "boxes": t["boxes"].to(device),
-                        "labels": t["labels"].to(device),
-                    }
-                    for t in O["target"]
-                ]
-            A = A.to(device)
-            action_loss, detection_loss = model.loss(O, A)
-            loss = action_loss+ detection_loss
-            test_loss.append(loss.item())
-            action_losses.append(action_loss.item())
-            detection_losses.append(detection_loss.item())
-        test_loss = np.array(test_loss).mean()
-        action_loss = np.array(action_losses).mean()
-        detection_loss = np.array(detection_losses).mean()
-        print("test loss: ", test_loss, "action_loss: ", action_loss, "detection_loss: ", detection_loss)
-        writer.add_scalar('test_loss', test_loss, epoch)
+        #         O["topdown"] = [img.to(device) for img in O["topdown"]]
+        #         O["target"] = [
+        #             {
+        #                 "boxes": t["boxes"].to(device),
+        #                 "labels": t["labels"].to(device),
+        #             }
+        #             for t in O["target"]
+        #         ]
+        #     A = A.to(device)
+        #     action_loss, detection_loss = model.loss(O, A)
+        #     loss = action_loss+ detection_loss
+        #     test_loss.append(loss.item())
+        #     action_losses.append(action_loss.item())
+        #     detection_losses.append(detection_loss.item())
+        # test_loss = np.array(test_loss).mean()
+        # action_loss = np.array(action_losses).mean()
+        # detection_loss = np.array(detection_losses).mean()
+        # print("test loss: ", test_loss, "action_loss: ", action_loss, "detection_loss: ", detection_loss)
+        # writer.add_scalar('test_loss', test_loss, epoch)
         if test_loss < best_test_loss:
             torch.save({'model' : model.state_dict(),
                         'optimizer' : optimizer.state_dict(), 

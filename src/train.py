@@ -168,8 +168,14 @@ def main():
                             camera_id=arglist.camera_id ,height=arglist.image_height,width=arglist.image_width)
         else:
             env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode='none')
+
+    checkpoint_path = os.path.join(model_dir, arglist.ckpt)
+    print(f"Loading model from {checkpoint_path}")
     
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+
     model = FlowMatchingModel(arglist).to(device)
+    model.load_state_dict(checkpoint['model'])
     backbone_params = []
     head_params = []
 
@@ -183,7 +189,16 @@ def main():
         {"params": backbone_params, "lr": 1e-4, "weight_decay": 1e-4},
         {"params": head_params, "lr": 3e-4, "weight_decay": 0.0},
     ])
+    optimizer.load_state_dict(checkpoint['optimizer'])
 
+    # Load epoch
+    start_epoch = checkpoint['epoch']
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode='min',
+        factor=0.3,
+        patience=3
+        )
     train_data = Dataset(arglist, "train")
     test_data = Dataset(arglist, "test")
 
@@ -202,7 +217,7 @@ def main():
 
     # Loop over epochs
     best_test_loss = np.inf
-    for epoch in range(arglist.epochs):
+    for epoch in range(start_epoch, arglist.epochs):
         print("Epoch ", epoch + 1, "/", arglist.epochs)
         # Training
         model.train()
@@ -267,6 +282,7 @@ def main():
         action_loss = np.array(action_losses).mean()
         detection_loss = np.array(detection_losses).mean()
         print("test loss: ", test_loss, "action_loss: ", action_loss, "detection_loss: ", detection_loss)
+        scheduler.step(test_loss)
         writer.add_scalar('test_loss', test_loss, epoch)
         if test_loss < best_test_loss:
             torch.save({'model' : model.state_dict(),

@@ -165,7 +165,7 @@ class FlowMatchingModel(nn.Module):
         self.arglist = arglist
         if arglist.expt == "expt_1":
             self.vector_field = MLPVectorField1(arglist)
-        elif arglist.expt == "expt_2":
+        elif arglist.expt == "expt_4":
             self.vector_field = MLPVectorField2(arglist)
         data_dir = os.path.join("/content/drive/MyDrive/APLDL/data/raw/", arglist.expt)
         self.stats = np.load(os.path.join(data_dir, "stats.npz"), allow_pickle=True)

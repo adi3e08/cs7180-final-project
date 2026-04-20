@@ -24,6 +24,24 @@ class CNN1(nn.Module):
         x = self.proj(x)
         return x  # (B, d_emb)
     
+class VLAProjection(nn.Module):
+    def __init__(self, d_emb):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(256, 128, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((4, 4)), # Gives you a 4x4 grid
+            nn.Flatten(start_dim=2),      # [B, 128, 16]
+        )
+        self.proj = nn.Linear(128, d_emb) # Maps 128 features to VLA size
+        self.dropout = nn.Dropout(p=0.1)
+
+    def forward(self, x):
+        x = self.net(x)          # [B, 128, 16]
+        x = x.transpose(1, 2)    # [B, 16, 128] 
+        x = self.proj(x)         # [B, 16, d_emb]
+        x = self.dropout(x)
+        return  x.reshape(x.shape[0], -1)
     
 class FasterRCNNBackbone(nn.Module):
     def __init__(self, n_classes=5, d_emb=128):
@@ -38,10 +56,10 @@ class FasterRCNNBackbone(nn.Module):
         # Freeze backbone, unfreeze detection head
         for param in fasterrcnn.backbone.parameters():
             param.requires_grad = False
-        for param in fasterrcnn.backbone.body.layer4.parameters():
-            param.requires_grad = True
-        for param in fasterrcnn.backbone.fpn.parameters():
-            param.requires_grad = True
+        # for param in fasterrcnn.backbone.body.layer4.parameters():
+        #     param.requires_grad = True
+        # for param in fasterrcnn.backbone.fpn.parameters():
+        #     param.requires_grad = True
         for param in fasterrcnn.roi_heads.box_predictor.parameters():
             param.requires_grad = True
         
@@ -52,7 +70,9 @@ class FasterRCNNBackbone(nn.Module):
         self.roi_heads = fasterrcnn.roi_heads
         
         # Branch 2: VLA feature projection
-        self.vla_projection = nn.Sequential(
+        self.vla_proj_0 = VLAProjection(d_emb=d_emb)
+         # Outputs [B, d_emb] directly
+        self.vla_proj_4_global = nn.Sequential(
             nn.Conv2d(256, 128, kernel_size=3, stride=2, padding=1),
             nn.ReLU(),
             nn.AdaptiveAvgPool2d((1, 1)),
@@ -60,6 +80,7 @@ class FasterRCNNBackbone(nn.Module):
             nn.Dropout(p=0.1),
             nn.Linear(128, d_emb)
         )
+        
     
     def forward(self, images, targets):
         # Transform images
@@ -69,15 +90,17 @@ class FasterRCNNBackbone(nn.Module):
         features = self.backbone(images.tensors)
         
         # Branch 2: VLA features from FPN level
-        vla_features = self.vla_projection(features['0'])  # pick an FPN level
+        vla_features1 = self.vla_proj_0(features['0'])
+        vla_features2 = self.vla_proj_4_global(features['4'])
+        
         if targets is not None:
             proposals, rpn_losses = self.rpn(images, features, targets)
             detections, det_losses = self.roi_heads(features, proposals, images.image_sizes, targets)
-            return vla_features, detections, rpn_losses, det_losses
+            return vla_features1, vla_features2, detections, rpn_losses, det_losses
         else:
             proposals, _ = self.rpn(images, features)
             detections, _ = self.roi_heads(features, proposals, images.image_sizes)
-            return vla_features, detections, None, None
+            return vla_features1, vla_features2, detections, None, None
 
 class MLPVectorField2(nn.Module):
     def __init__(self, arglist):
@@ -93,7 +116,7 @@ class MLPVectorField2(nn.Module):
                 self.detection_backbone = FasterRCNNBackbone(n_classes=6, d_emb=arglist.d_emb)   
                 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
                 self.detection_backbone = self.detection_backbone.to(device)
-                input_dim = arglist.d_emb * (3 + int(self.arglist.image) + int(self.arglist.use_backbone) + int(self.arglist.text))
+                input_dim = arglist.d_emb * (3 + int(self.arglist.image) + (17 * int(self.arglist.use_backbone)) + int(self.arglist.text))
             
         if arglist.text:
             self.text_encoder = nn.Linear(512, arglist.d_emb)
@@ -133,8 +156,9 @@ class MLPVectorField2(nn.Module):
             image_emb = self.image_encoder(rgbd)
             obs_emb.append(image_emb)
             if self.arglist.use_backbone and 'target' in O and 'topdown' in O:
-                vla_features, detections, rpn_losses, det_losses = self.detection_backbone(O['topdown'], O['target'])
-                obs_emb.append(vla_features)
+                vla_features1, vla_features2, detections, rpn_losses, det_losses = self.detection_backbone(O['topdown'], O['target'])
+                obs_emb.append(vla_features1)
+                obs_emb.append(vla_features2)
         
         if self.arglist.text:
             text_emb = self.text_encoder(O['text'])

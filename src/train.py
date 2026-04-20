@@ -146,8 +146,8 @@ def main():
     torch.manual_seed(arglist.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model_dir = os.path.join("./models", arglist.expt)
-    results_dir = os.path.join("./results", arglist.expt)
+    model_dir = os.path.join("/content/drive/MyDrive/APLDL/models/", arglist.expt)
+    results_dir = os.path.join("/content/drive/MyDrive/APLDL/results/", arglist.expt)
     os.makedirs(model_dir, exist_ok=True)
     os.makedirs(results_dir, exist_ok=True)
     writer = SummaryWriter(log_dir=results_dir)
@@ -159,13 +159,13 @@ def main():
         else:
             env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode='none')
 
-    checkpoint_path = os.path.join(model_dir, arglist.ckpt)
-    print(f"Loading model from {checkpoint_path}")
+    # checkpoint_path = os.path.join(model_dir, arglist.ckpt)
+    # print(f"Loading model from {checkpoint_path}")
     
-    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    # checkpoint = torch.load(checkpoint_path, map_location="cpu")
 
     model = FlowMatchingModel(arglist).to(device)
-    model.load_state_dict(checkpoint['model'])
+    # model.load_state_dict(checkpoint['model'])
     backbone_params = []
     head_params = []
 
@@ -179,10 +179,11 @@ def main():
         {"params": backbone_params, "lr": 1e-4, "weight_decay": 1e-4},
         {"params": head_params, "lr": 3e-4, "weight_decay": 0.0},
     ])
-    optimizer.load_state_dict(checkpoint['optimizer'])
+    # optimizer.load_state_dict(checkpoint['optimizer'])
 
     # Load epoch
-    start_epoch = checkpoint['epoch']
+    # start_epoch = checkpoint['epoch']
+    start_epoch = 0
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode='min',

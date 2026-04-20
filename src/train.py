@@ -208,6 +208,7 @@ def main():
 
     # Loop over epochs
     best_test_loss = np.inf
+    lambda_det = 0.25
     for epoch in range(start_epoch, arglist.epochs):
         print("Epoch ", epoch + 1, "/", arglist.epochs)
         # Training
@@ -230,10 +231,10 @@ def main():
                     for t in O["target"]
                 ]
             action_loss, detection_loss = model.loss(O, A)
-            loss = action_loss+ detection_loss
+            loss = action_loss + (lambda_det * detection_loss)
             optimizer.zero_grad()
             loss.backward()
-            # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=1.0)
             optimizer.step()
             train_loss.append(loss.item())
             action_losses.append(action_loss.item())
@@ -265,7 +266,7 @@ def main():
                     ]
                 A = A.to(device)
                 action_loss, detection_loss = model.loss(O, A)
-                loss = action_loss+ detection_loss
+                loss = action_loss + (lambda_det * detection_loss)
                 test_loss.append(loss.item())
                 action_losses.append(action_loss.item())
                 detection_losses.append(detection_loss.item())

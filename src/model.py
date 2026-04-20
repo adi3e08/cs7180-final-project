@@ -161,7 +161,7 @@ class MLPVectorField2(nn.Module):
                 obs_emb.append(vla_features2)
         
         if self.arglist.text:
-            text_emb = self.text_encoder(O['text'])
+            text_emb = self.text_encoder(O['text']).squeeze(1)
             obs_emb.append(text_emb)
         
         # Time encoding

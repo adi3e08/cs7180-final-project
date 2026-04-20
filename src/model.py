@@ -91,7 +91,7 @@ class FasterRCNNBackbone(nn.Module):
         
         # Branch 2: VLA features from FPN level
         vla_features1 = self.vla_proj_0(features['0'])
-        vla_features2 = self.vla_proj_4_global(features['4'])
+        vla_features2 = self.vla_proj_4_global(features['3'])
         
         if targets is not None:
             proposals, rpn_losses = self.rpn(images, features, targets)
@@ -119,7 +119,7 @@ class MLPVectorField2(nn.Module):
                 input_dim = arglist.d_emb * (3 + int(self.arglist.image) + (17 * int(self.arglist.use_backbone)) + int(self.arglist.text))
             
         if arglist.text:
-            self.text_encoder = nn.Linear(512, arglist.d_emb)
+            self.text_encoder = nn.Embedding(arglist.num_objects, arglist.d_emb)
 
         # Time encoding
         self.time_encoder = nn.Linear(1, arglist.d_emb)

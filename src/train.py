@@ -187,8 +187,8 @@ def main():
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer,
         mode='min',
-        factor=0.3,
-        patience=3
+        factor=0.5,
+        patience=5
         )
     train_data = Dataset(arglist, "train")
     test_data = Dataset(arglist, "test")
@@ -209,6 +209,7 @@ def main():
     # Loop over epochs
     best_test_loss = np.inf
     lambda_det = 0.25
+    scaler = torch.amp.GradScaler('cuda')
     for epoch in range(start_epoch, arglist.epochs):
         print("Epoch ", epoch + 1, "/", arglist.epochs)
         # Training
@@ -230,12 +231,24 @@ def main():
                     }
                     for t in O["target"]
                 ]
-            action_loss, detection_loss = model.loss(O, A)
-            loss = action_loss + (lambda_det * detection_loss)
+
+            # Inside your training loop:
             optimizer.zero_grad()
+
+            # Use bfloat16 for the forward pass and loss calculation
+            with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                action_loss, detection_loss = model.loss(O, A)
+                loss = action_loss + (lambda_det * detection_loss)
+
+            # Backprop remains in fp32 for stability
             loss.backward()
+
+            # Safety hard-stop for multimodal gradients
             torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=1.0)
+
             optimizer.step()
+            
+
             train_loss.append(loss.item())
             action_losses.append(action_loss.item())
             detection_losses.append(detection_loss.item())
@@ -265,8 +278,9 @@ def main():
                         for t in O["target"]
                     ]
                 A = A.to(device)
-                action_loss, detection_loss = model.loss(O, A)
-                loss = action_loss + (lambda_det * detection_loss)
+                with torch.amp.autocast('cuda', dtype=torch.bfloat16):
+                  action_loss, detection_loss = model.loss(O, A)
+                  loss = action_loss + (lambda_det * detection_loss)
                 test_loss.append(loss.item())
                 action_losses.append(action_loss.item())
                 detection_losses.append(detection_loss.item())
@@ -282,7 +296,7 @@ def main():
                         'epoch' : epoch}, os.path.join(model_dir, "best.ckpt"))
             best_test_loss = test_loss
         
-        if epoch % 20 == 0 or epoch == arglist.epochs-1:
+        if epoch % 5 == 0 or epoch == arglist.epochs-1:
             torch.save({'model' : model.state_dict(),
                         'optimizer' : optimizer.state_dict(), 
                         'epoch' : epoch}, os.path.join(model_dir, str(epoch)+".ckpt"))

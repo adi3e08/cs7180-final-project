@@ -89,7 +89,7 @@ def eval_model(arglist):
     np.random.seed(arglist.seed)
     torch.set_default_dtype(torch.float32)
     torch.manual_seed(arglist.seed)
-    device = torch.device("cpu")
+    device = torch.device("cuda")
 
     if arglist.display:
         render_mode = "human"
@@ -106,8 +106,8 @@ def eval_model(arglist):
                         width=arglist.image_width)
     else:
         env = gym.make('Meta-World/MT1', env_name=arglist.env, seed=arglist.seed, render_mode=render_mode)  
-
-    model_dir = os.path.join("./models", arglist.expt)
+    colors = ["green", "yellow", "purple"]
+    model_dir = os.path.join("/content/drive/MyDrive/APLDL/models/", arglist.expt)
     checkpoint_path = os.path.join(model_dir, arglist.ckpt)
     print(f"Loading model from {checkpoint_path}")
     
@@ -123,8 +123,12 @@ def eval_model(arglist):
         env_top.reset()
         frames = []
         step=0
+        if arglist.text:
+            target = np.random.choice(arglist.num_objects)
+        else:
+            target = 0
         while True:
-            a = model.sample(o, env, env_top, device)
+            a = model.sample(o, env, env_top, device, target)
             o_1, r, terminated, truncated, info = env.step(a)
             env_top.step(a)
             if arglist.display:
@@ -135,18 +139,20 @@ def eval_model(arglist):
               if frame is not None:
                   frames.append(frame)
             step+=1
+            if step == 1000:
+              break
             print(f"step {step}")
-            success = int(info['success'])
+            success = check_success(o_1, target, arglist)
             done = terminated or truncated or success
             o = o_1
             if done:
-                print(f"episode: {episode}, success: {bool(success)}")
+                print(f"episode: {episode}, target:{target}, color:{colors[target]}, success: {bool(success)}")
                 metric.append(success)
                 break
         gif_path = f"/content/episode_{episode}.gif"
         imageio.mimsave(gif_path, frames, fps=20)
         print(f"Saved GIF: {gif_path}")
-    print("Task success rate, ", np.mean(metric))
+    print(f"Task success rate on {arglist.episodes} episodes: {np.mean(metric)}")
     env.close()
 
 if __name__ == '__main__':

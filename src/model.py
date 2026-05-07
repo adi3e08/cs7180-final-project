@@ -245,3 +245,137 @@ class FlowMatchingModel(nn.Module):
         if self.arglist.normalize:
             a = a * self.stats['action_std'] + self.stats['action_mean']
         return a
+
+class CroCoAutoencoder(nn.Module):
+    def __init__(self, img_size=256, patch_size=16, embed_dim=256, num_heads=4, enc_depth=6, dec_depth=6):
+        super().__init__()
+        self.patch_size = patch_size
+        self.num_patches = (img_size // patch_size) ** 2
+        
+        # ==========================================
+        # 1. PATCH EMBEDDING
+        # ==========================================
+        # Shared projection to convert 16x16 image patches into 1D tokens
+        self.patch_embed = nn.Conv2d(3, embed_dim, kernel_size=patch_size, stride=patch_size)
+        
+        # Positional embeddings to retain spatial coordinates
+        self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, embed_dim))
+        
+        # The learnable MASK token used to replace hidden patches in the Top-Down view
+        self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        
+        # ==========================================
+        # 2. SHARED ENCODER (ViT)
+        # ==========================================
+        # Extracts visual features from whatever patches it is given
+        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, batch_first=True)
+        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=enc_depth)
+        
+        # ==========================================
+        # 3. CROCO DECODER (Self-Attn + Cross-Attn)
+        # ==========================================
+        # In PyTorch, a TransformerDecoderLayer does exactly what CroCo specifies:
+        # Top-Down Self-Attention -> Top-Down-to-Gripper Cross-Attention -> MLP
+        decoder_layer = nn.TransformerDecoderLayer(d_model=embed_dim, nhead=num_heads, batch_first=True)
+        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=dec_depth)
+        
+        # ==========================================
+        # 4. RECONSTRUCTION HEAD
+        # ==========================================
+        # Projects the tokens back into raw RGB pixel values for the patch
+        self.reconstruction_head = nn.Linear(embed_dim, 3 * patch_size * patch_size)
+
+    def forward(self, topdown_img, gripper_img, mask_ratio=0.75, return_embedding_only=False):
+        B = topdown_img.size(0)
+        
+        # --- PATCHIFICATION ---
+        # [B, 3, 256, 256] -> [B, embed_dim, 16, 16] -> [B, 256, embed_dim]
+        top_tokens = self.patch_embed(topdown_img).flatten(2).transpose(1, 2)
+        grip_tokens = self.patch_embed(gripper_img).flatten(2).transpose(1, 2)
+        
+        # Add spatial positional embeddings
+        top_tokens = top_tokens + self.pos_embed
+        grip_tokens = grip_tokens + self.pos_embed
+        
+        # --- CROCO MASKING STRATEGY (Training Phase) ---
+        # Randomly mask out e.g. 75% of the Top-Down tokens
+        num_masked = int(mask_ratio * self.num_patches)
+        noise = torch.rand(B, self.num_patches, device=top_tokens.device)
+        mask_indices = torch.argsort(noise, dim=1)[:, :num_masked]
+        visible_indices = torch.argsort(noise, dim=1)[:, num_masked:]
+        
+        # Gather only the visible Top-Down tokens for the encoder
+        batch_indices = torch.arange(B).unsqueeze(1).expand(-1, self.num_patches - num_masked)
+        visible_top_tokens = top_tokens[batch_indices, visible_indices]
+        
+        # --- ENCODING ---
+        # The encoder only processes visible Top-Down patches and the FULL Gripper view
+        enc_top = self.encoder(visible_top_tokens)
+        enc_grip = self.encoder(grip_tokens)
+        
+        # --- DECODER PREP ---
+        # Reconstruct the full Top-Down token sequence using the MASK tokens
+        full_top_tokens = torch.zeros(B, self.num_patches, self.mask_token.size(-1), device=top_tokens.device)
+        full_top_tokens[batch_indices, visible_indices] = enc_top
+        
+        mask_batch_indices = torch.arange(B).unsqueeze(1).expand(-1, num_masked)
+        full_top_tokens[mask_batch_indices, mask_indices] = self.mask_token
+        
+        # Add positional embeddings again for the decoder so the mask tokens know where they are
+        full_top_tokens = full_top_tokens + self.pos_embed
+        
+        # --- CROSS-VIEW COMPLETION ---
+        # target = full_top_tokens (Queries)
+        # memory = enc_grip (Keys/Values)
+        fused_embeddings = self.decoder(tgt=full_top_tokens, memory=enc_grip)
+        
+        # If we are in the downstream phase, output the bottleneck embedding here!
+        if return_embedding_only:
+            return fused_embeddings.mean(dim=1) # Pooling into a 1D vector for Flow Matching
+            
+        # --- RECONSTRUCTION ---
+        reconstructed_patches = self.reconstruction_head(fused_embeddings)
+        
+        return reconstructed_patches, mask_indices
+    
+def patchify(imgs, patch_size=16):
+    """
+    Converts a batch of images [B, 3, H, W] into a sequence of flattened patches.
+    Output shape: [B, num_patches, 3 * patch_size * patch_size]
+    """
+    p = patch_size
+    assert imgs.shape[2] == imgs.shape[3] and imgs.shape[2] % p == 0
+    
+    h = w = imgs.shape[2] // p
+    x = imgs.reshape(shape=(imgs.shape[0], 3, h, p, w, p))
+    x = torch.einsum('nchpwq->nhwpqc', x) # Rearrange dimensions
+    x = x.reshape(shape=(imgs.shape[0], h * w, p**2 * 3)) # Flatten the patch
+    return x
+
+def compute_croco_loss(model, topdown_img, gripper_img, mask_ratio=0.75):
+    """
+    Executes the forward pass and computes the MSE loss only on the masked patches.
+    """
+    B = topdown_img.size(0)
+    
+    # 1. Forward Pass
+    # reconstructed_patches shape: [B, num_patches, 3 * 16 * 16]
+    # mask_indices shape: [B, num_masked]
+    reconstructed_patches, mask_indices = model(topdown_img, gripper_img, mask_ratio=mask_ratio)
+    
+    # 2. Prepare the Ground Truth
+    # Convert the original top-down image into patches to match the output format
+    target_patches = patchify(topdown_img, patch_size=model.patch_size)
+    
+    # 3. Extract ONLY the masked patches
+    # We create a batch index tensor to advanced-index into the sequences
+    batch_indices = torch.arange(B, device=topdown_img.device).unsqueeze(1).expand(-1, mask_indices.size(1))
+    
+    # Gather the predictions and targets for just the hidden patches
+    pred_masked = reconstructed_patches[batch_indices, mask_indices]
+    target_masked = target_patches[batch_indices, mask_indices]
+    
+    # 4. Compute MSE Loss
+    loss = F.mse_loss(pred_masked, target_masked)
+    
+    return loss

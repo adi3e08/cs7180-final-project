@@ -194,3 +194,58 @@ def check_success(o_1, target, arglist):
     correct_obj_success = float(np.linalg.norm(obj_pos - goal_pos) < 0.05)
     success = int(correct_obj_success)
     return success
+
+def apply_patch_mask(img: np.ndarray, pixel_mask: np.ndarray) -> np.ndarray:
+    """
+    Zero out masked regions in img.
+
+    Args:
+        img         : uint8 RGB image, shape (H, W, 3)
+        pixel_mask  : uint8 mask, shape (H, W), 1 = masked
+
+    Returns:
+        masked_img  : uint8 RGB image with masked patches set to 0
+    """
+    masked = img.copy()
+    masked[pixel_mask == 1] = 0
+    return masked
+
+def create_patch_mask(
+    img_h: int,
+    img_w: int,
+    patch_size: int = 16,
+    mask_ratio: float = 0.90,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    """
+    Returns a boolean mask of shape (img_h, img_w) where True = MASKED (zeroed).
+
+    Divides the image into non-overlapping (patch_size x patch_size) patches and
+    randomly selects `mask_ratio` fraction of them to mask.
+
+    Args:
+        img_h, img_w : image dimensions (must be divisible by patch_size)
+        patch_size   : side length of each square patch (default 16, matches ViT-S/16)
+        mask_ratio   : fraction of patches to zero out (default 0.90, matches CroCo)
+        rng          : optional numpy Generator for reproducibility
+
+    Returns:
+        pixel_mask   : uint8 array (img_h, img_w), 1 = masked, 0 = visible
+    """
+    if rng is None:
+        rng = np.random.default_rng()
+
+    n_h = img_h // patch_size
+    n_w = img_w // patch_size
+    n_patches = n_h * n_w
+    n_masked = int(np.round(mask_ratio * n_patches))
+
+    patch_indices = rng.permutation(n_patches)[:n_masked]
+
+    pixel_mask = np.zeros((img_h, img_w), dtype=np.uint8)
+    for idx in patch_indices:
+        row = (idx // n_w) * patch_size
+        col = (idx % n_w) * patch_size
+        pixel_mask[row:row + patch_size, col:col + patch_size] = 1
+
+    return pixel_mask  # shape (H, W)

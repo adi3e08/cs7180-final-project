@@ -260,6 +260,7 @@ class CroCoAutoencoder(nn.Module):
         
         # Positional embeddings to retain spatial coordinates
         self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, embed_dim))
+        torch.nn.init.trunc_normal_(self.pos_embed, std=.02)
         
         # The learnable MASK token used to replace hidden patches in the Top-Down view
         self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))

@@ -247,7 +247,7 @@ class FlowMatchingModel(nn.Module):
         return a
 
 class CroCoAutoencoder(nn.Module):
-    def __init__(self, img_size=256, patch_size=16, embed_dim=256, num_heads=4, enc_depth=6, dec_depth=6):
+    def __init__(self, img_size=224, patch_size=16, embed_dim=256, num_heads=4, enc_depth=6, dec_depth=6):
         super().__init__()
         self.patch_size = patch_size
         self.num_patches = (img_size // patch_size) ** 2

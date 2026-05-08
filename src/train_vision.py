@@ -1,13 +1,9 @@
 import os
 import argparse
 import numpy as np
-from src import model
 import torch
-from torch.utils.tensorboard import SummaryWriter
-import gymnasium as gym
-import metaworld
 import sys
-from src.model import FlowMatchingModel, compute_croco_loss, CroCoAutoencoder
+from src.model import compute_croco_loss, CroCoAutoencoder
 from src.utils import normalize, get_tensor, create_patch_mask, apply_patch_mask
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
@@ -63,6 +59,7 @@ class CroCoPairDataset(Dataset):
             npz_files = np.random.permutation(npz_files)  # shuffle training files for better generalisation
         else:
             npz_files = npz_files[int(0.8 * total_npz_files):]
+        npz_files = npz_files[:2]
         for npz in npz_files:
             n = np.load(npz, allow_pickle=True)['topdown'].shape[0]
             for i in range(n):
@@ -128,21 +125,6 @@ def parse_args():
     parser.add_argument("--num_objects", type=int, default=3, help="number of objects in the scene")
     return parser.parse_args()
 
-
-def collate_fn(batch):
-    Os, As = zip(*batch)
-    O_out = {}
-    for k in Os[0].keys():
-        if k == "target":
-            O_out[k] = [o[k] for o in Os]   
-        elif k == "topdown":
-            O_out[k] = [o[k] for o in Os]  
-        else:
-            O_out[k] = torch.stack([o[k] for o in Os])  
-    A = torch.stack(As)
-
-    return O_out, A
-
 def main():
     arglist = parse_args()
 
@@ -171,7 +153,7 @@ def main():
 
     model = CroCoAutoencoder().to(device)
     # model.load_state_dict(checkpoint['model'])
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=0.05)
     # optimizer.load_state_dict(checkpoint['optimizer'])
 
     # Load epoch

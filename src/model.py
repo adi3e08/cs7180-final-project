@@ -261,8 +261,21 @@ class CroCoAutoencoder(nn.Module):
         # CRITICAL STABILITY FIX: Normalize features after upscaling (192 -> 512)
         self.patch_norm = nn.LayerNorm(embed_dim)
         
+        # Inside CroCoAutoencoder.__init__
+
+        # Separate spatial grids for each camera perspective
         self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, embed_dim))
+        self.grip_pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, embed_dim))
+
         torch.nn.init.trunc_normal_(self.pos_embed, std=.02)
+        torch.nn.init.trunc_normal_(self.grip_pos_embed, std=.02)
+
+        # Global View Namespace Embeddings (Tells tokens which camera they belong to)
+        self.topdown_view_embed = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.gripper_view_embed = nn.Parameter(torch.zeros(1, 1, embed_dim))
+
+        torch.nn.init.trunc_normal_(self.topdown_view_embed, std=.02)
+        torch.nn.init.trunc_normal_(self.gripper_view_embed, std=.02)
         
         self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         # CRITICAL STABILITY FIX: Initialize mask token
@@ -300,53 +313,52 @@ class CroCoAutoencoder(nn.Module):
     def forward(self, topdown_img, gripper_img, mask_ratio=0.75, return_embedding_only=False):
         B = topdown_img.size(0)
         
-        # --- PATCHIFICATION ---
-        # [B, 3, 256, 256] -> [B, embed_dim, 16, 16] -> [B, 256, embed_dim]
+        # --- 1. RAW FEATURE EXTRACTION ---
+        # Flatten and normalize base texture representations
         top_tokens = self.patch_embed(topdown_img).flatten(2).transpose(1, 2)
         grip_tokens = self.patch_embed(gripper_img).flatten(2).transpose(1, 2)
+
         top_tokens = self.patch_norm(top_tokens)
         grip_tokens = self.patch_norm(grip_tokens)
-        # Add spatial positional embeddings
-        top_tokens = top_tokens + self.pos_embed
-        grip_tokens = grip_tokens + self.pos_embed
+
+        # --- 2. ENCODER STREAM PREP ---
+        # Apply spatial coordinates and view tags for the Encoder pass
+        enc_top_tokens = top_tokens + self.pos_embed + self.topdown_view_embed
+        enc_grip_tokens = grip_tokens + self.grip_pos_embed + self.gripper_view_embed
         
-        # --- CROCO MASKING STRATEGY (Training Phase) ---
-        # Randomly mask out e.g. 75% of the Top-Down tokens
+        # --- 3. MASKING STRATEGY ---
         num_masked = int(mask_ratio * self.num_patches)
         noise = torch.rand(B, self.num_patches, device=top_tokens.device)
         mask_indices = torch.argsort(noise, dim=1)[:, :num_masked]
         visible_indices = torch.argsort(noise, dim=1)[:, num_masked:]
         
-        # Gather only the visible Top-Down tokens for the encoder
+        # Gather strictly visible tokens for the encoder
         batch_indices = torch.arange(B).unsqueeze(1).expand(-1, self.num_patches - num_masked)
-        visible_top_tokens = top_tokens[batch_indices, visible_indices]
+        visible_top_tokens = enc_top_tokens[batch_indices, visible_indices]
         
-        # --- ENCODING ---
-        # The encoder only processes visible Top-Down patches and the FULL Gripper view
+        # --- 4. ENCODING ---
         enc_top = self.encoder(visible_top_tokens)
-        enc_grip = self.encoder(grip_tokens)
+        enc_grip = self.encoder(enc_grip_tokens)
         
-        # --- DECODER PREP ---
-        # Reconstruct the full Top-Down token sequence using the MASK tokens
-        full_top_tokens = torch.zeros(B, self.num_patches, self.mask_token.size(-1), device=top_tokens.device)
+        # --- 5. DECODER SEQUENCE ASSEMBLY ---
+        # Initialize full sequence using the learnable mask token as the baseline feature
+        full_top_tokens = self.mask_token.expand(B, self.num_patches, -1).clone()
+        
+        # Overwrite visible slots with processed encoder outputs
         full_top_tokens[batch_indices, visible_indices] = enc_top
         
-        mask_batch_indices = torch.arange(B).unsqueeze(1).expand(-1, num_masked)
-        full_top_tokens[mask_batch_indices, mask_indices] = self.mask_token
+        # CRITICAL CORRECTION: Add spatial coordinates and view tags strictly ONCE 
+        # to the newly assembled decoder sequence to calibrate the mask tokens.
+        full_top_tokens = full_top_tokens + self.pos_embed + self.topdown_view_embed
         
-        # Add positional embeddings again for the decoder so the mask tokens know where they are
-        full_top_tokens = full_top_tokens + self.pos_embed
-        
-        # --- CROSS-VIEW COMPLETION ---
-        # target = full_top_tokens (Queries)
-        # memory = enc_grip (Keys/Values)
+        # --- 6. CROSS-VIEW COMPLETION ---
+        # Queries: full_top_tokens | Keys/Values: enc_grip
         fused_embeddings = self.decoder(tgt=full_top_tokens, memory=enc_grip)
         
-        # If we are in the downstream phase, output the bottleneck embedding here!
         if return_embedding_only:
-            return fused_embeddings.mean(dim=1) # Pooling into a 1D vector for Flow Matching
+            return fused_embeddings.mean(dim=1) 
             
-        # --- RECONSTRUCTION ---
+        # --- 7. RECONSTRUCTION ---
         reconstructed_patches = self.reconstruction_head(fused_embeddings)
         
         return reconstructed_patches, mask_indices

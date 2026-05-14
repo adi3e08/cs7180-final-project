@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from src.utils import construct_observation_tensor
 from torchvision.models.detection import fasterrcnn_resnet50_fpn, FasterRCNN_ResNet50_FPN_Weights
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+import matplotlib.pyplot as plt
 class CNN1(nn.Module):
     def __init__(self, d_emb):
         super().__init__()
@@ -463,6 +464,15 @@ def compute_croco_loss(model, topdown_img, gripper_img, mask_ratio=0.75):
     target_masked = target_patches[batch_indices, mask_indices]
     
     # 4. Compute MSE Loss
-    loss = F.mse_loss(pred_masked, target_masked)
+    # loss = F.mse_loss(pred_masked, target_masked)
+    # Inside compute_croco_loss (conceptual implementation)
+
+    # Calculate variance of each ground truth patch across its pixels
+    patch_variance = target_patches.var(dim=-1, keepdim=True) # [B, num_patches, 1]
+    weight = 1.0 + (patch_variance * 10.0) # Scale up loss for complex patches
+
+    # Apply weighted loss only to masked indices
+    raw_loss = torch.abs(pred_masked - target_masked)
+    weighted_loss = (raw_loss * weight)[batch_indices, mask_indices].mean()
     
-    return loss
+    return weighted_loss

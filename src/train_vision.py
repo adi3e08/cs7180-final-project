@@ -3,8 +3,8 @@ import argparse
 import numpy as np
 import torch
 import sys
-from src.model import compute_croco_loss, CroCoAutoencoder
-from src.utils import normalize, get_tensor, create_patch_mask, apply_patch_mask, visualize_croco_predictions
+from src.model import compute_croco_loss, CroCoAutoencoder, visualize_croco_predictions
+from src.utils import normalize, get_tensor, create_patch_mask, apply_patch_mask
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 import torch.nn.functional as F
@@ -243,7 +243,7 @@ def main():
                         'epoch' : epoch}, os.path.join(model_dir, str(epoch)+".ckpt"))
             print("Visualizing Reconstructions...")
             # We just pass the last batch from the test loader into the visualizer
-            visualize_croco_predictions(model, full_topdown, gripper_pov, mask_ratio=0.75, num_samples=3)
+            visualize_croco_predictions(model, full_topdown, gripper_pov, mask_ratio=0.75, num_samples=3, save_path=f"/content/epoch_{epoch}.png")
 
 
     # writer.close()

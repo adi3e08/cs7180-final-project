@@ -372,7 +372,7 @@ def unpatchify(x, patch_size=16):
     x = x.reshape(shape=(B, 3, h * p, w * p))
     return x
 
-def visualize_croco_predictions(model, topdown_img, gripper_img, mask_ratio=0.75, num_samples=3):
+def visualize_croco_predictions(model, topdown_img, gripper_img, mask_ratio=0.75, num_samples=3, save_path=None):
     """
     Runs a forward pass and plots:
     [Gripper] | [Masked Input] | [Reconstruction] | [Ground Truth]
@@ -438,7 +438,8 @@ def visualize_croco_predictions(model, topdown_img, gripper_img, mask_ratio=0.75
         axes[i][3].axis('off')
         
     plt.tight_layout()
-    plt.show()
+    plt.savefig(save_path)
+    plt.close(fig)
 
 def compute_croco_loss(model, topdown_img, gripper_img, mask_ratio=0.75):
     """

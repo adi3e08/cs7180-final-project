@@ -256,35 +256,45 @@ class CroCoAutoencoder(nn.Module):
         # ==========================================
         # 1. PATCH EMBEDDING
         # ==========================================
-        # Shared projection to convert 8x8 image patches into 1D tokens
         self.patch_embed = nn.Conv2d(3, embed_dim, kernel_size=patch_size, stride=patch_size)
         
-        # Positional embeddings to retain spatial coordinates
+        # CRITICAL STABILITY FIX: Normalize features after upscaling (192 -> 512)
+        self.patch_norm = nn.LayerNorm(embed_dim)
+        
         self.pos_embed = nn.Parameter(torch.zeros(1, self.num_patches, embed_dim))
         torch.nn.init.trunc_normal_(self.pos_embed, std=.02)
         
-        # The learnable MASK token used to replace hidden patches in the Top-Down view
         self.mask_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        # CRITICAL STABILITY FIX: Initialize mask token
+        torch.nn.init.trunc_normal_(self.mask_token, std=.02)
         
         # ==========================================
         # 2. SHARED ENCODER (ViT)
         # ==========================================
-        # Extracts visual features from whatever patches it is given
-        encoder_layer = nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads, batch_first=True)
+        # CRITICAL STABILITY FIX: norm_first=True enforces Pre-LN architecture
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=embed_dim, 
+            nhead=num_heads, 
+            batch_first=True,
+            norm_first=True  
+        )
         self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=enc_depth)
         
         # ==========================================
         # 3. CROCO DECODER (Self-Attn + Cross-Attn)
         # ==========================================
-        # In PyTorch, a TransformerDecoderLayer does exactly what CroCo specifies:
-        # Top-Down Self-Attention -> Top-Down-to-Gripper Cross-Attention -> MLP
-        decoder_layer = nn.TransformerDecoderLayer(d_model=embed_dim, nhead=num_heads, batch_first=True)
+        # CRITICAL STABILITY FIX: norm_first=True enforces Pre-LN architecture
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=embed_dim, 
+            nhead=num_heads, 
+            batch_first=True,
+            norm_first=True  
+        )
         self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=dec_depth)
         
         # ==========================================
         # 4. RECONSTRUCTION HEAD
         # ==========================================
-        # Projects the tokens back into raw RGB pixel values for the patch
         self.reconstruction_head = nn.Linear(embed_dim, 3 * patch_size * patch_size)
 
     def forward(self, topdown_img, gripper_img, mask_ratio=0.75, return_embedding_only=False):
@@ -294,7 +304,8 @@ class CroCoAutoencoder(nn.Module):
         # [B, 3, 256, 256] -> [B, embed_dim, 16, 16] -> [B, 256, embed_dim]
         top_tokens = self.patch_embed(topdown_img).flatten(2).transpose(1, 2)
         grip_tokens = self.patch_embed(gripper_img).flatten(2).transpose(1, 2)
-        
+        top_tokens = self.patch_norm(top_tokens)
+        grip_tokens = self.patch_norm(grip_tokens)
         # Add spatial positional embeddings
         top_tokens = top_tokens + self.pos_embed
         grip_tokens = grip_tokens + self.pos_embed

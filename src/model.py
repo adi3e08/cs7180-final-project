@@ -353,6 +353,92 @@ def patchify(imgs, patch_size=16):
     x = x.reshape(shape=(imgs.shape[0], h * w, p**2 * 3)) # Flatten the patch
     return x
 
+def unpatchify(x, patch_size=16):
+    """
+    Reverses the patchify operation.
+    Converts a sequence of patches [B, num_patches, 3 * p * p] 
+    back into an image [B, 3, H, W].
+    """
+    B = x.shape[0]
+    p = patch_size
+    h = w = int(x.shape[1] ** 0.5)
+    
+    # Reverse the flattening
+    x = x.reshape(shape=(B, h, w, p, p, 3))
+    # Reverse the dimension rearrangement
+    x = torch.einsum('nhwpqc->nchpwq', x)
+    # Reverse the grid splitting
+    x = x.reshape(shape=(B, 3, h * p, w * p))
+    return x
+
+def visualize_croco_predictions(model, topdown_img, gripper_img, mask_ratio=0.75, num_samples=3):
+    """
+    Runs a forward pass and plots:
+    [Gripper] | [Masked Input] | [Reconstruction] | [Ground Truth]
+    """
+    model.eval()
+    B = topdown_img.size(0)
+    num_samples = min(B, num_samples) # Don't try to plot more images than are in the batch
+    
+    with torch.no_grad():
+        preds, mask_indices = model(topdown_img, gripper_img, mask_ratio=mask_ratio)
+        
+    # 1. Break the ground truth into patches
+    target_patches = patchify(topdown_img, patch_size=model.patch_size)
+    
+    # 2. Create the "Masked Input" (what the model actually saw)
+    # We copy the target patches and zero-out the masked ones
+    masked_input_patches = target_patches.clone()
+    batch_indices = torch.arange(B, device=topdown_img.device).unsqueeze(1).expand(-1, mask_indices.size(1))
+    masked_input_patches[batch_indices, mask_indices] = 0.0 
+    
+    # 3. Create the "Reconstructed Output"
+    # Standard practice: Keep the visible ground truth patches, but overlay the model's predictions for the masked patches
+    reconstructed_patches = target_patches.clone()
+    reconstructed_patches[batch_indices, mask_indices] = preds[batch_indices, mask_indices]
+    
+    # 4. Stitch everything back into 2D images
+    masked_input_img = unpatchify(masked_input_patches, patch_size=model.patch_size)
+    reconstructed_img = unpatchify(reconstructed_patches, patch_size=model.patch_size)
+    
+    # 5. Un-normalize everything so Matplotlib can render the colors correctly
+    mean = torch.tensor([0.485, 0.456, 0.406], device=topdown_img.device).view(1, 3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225], device=topdown_img.device).view(1, 3, 1, 1)
+    
+    def unnorm(img):
+        img = img * std + mean
+        return torch.clamp(img, 0, 1).cpu().numpy() # Clamp to [0, 1] range
+        
+    topdown_vis = unnorm(topdown_img)
+    gripper_vis = unnorm(gripper_img)
+    masked_vis = unnorm(masked_input_img)
+    recon_vis = unnorm(reconstructed_img)
+    
+    # 6. Plot the grid
+    fig, axes = plt.subplots(num_samples, 4, figsize=(14, 3.5 * num_samples))
+    if num_samples == 1: axes = [axes] # Handle 1D array case if batch size is 1
+        
+    for i in range(num_samples):
+        # Matplotlib expects channels last: (H, W, C)
+        axes[i][0].imshow(np.transpose(gripper_vis[i], (1, 2, 0)))
+        axes[i][0].set_title("Gripper Context" if i==0 else "")
+        axes[i][0].axis('off')
+        
+        axes[i][1].imshow(np.transpose(masked_vis[i], (1, 2, 0)))
+        axes[i][1].set_title(f"Masked Top-Down ({int(mask_ratio*100)}%)" if i==0 else "")
+        axes[i][1].axis('off')
+        
+        axes[i][2].imshow(np.transpose(recon_vis[i], (1, 2, 0)))
+        axes[i][2].set_title("Reconstruction" if i==0 else "")
+        axes[i][2].axis('off')
+        
+        axes[i][3].imshow(np.transpose(topdown_vis[i], (1, 2, 0)))
+        axes[i][3].set_title("Ground Truth" if i==0 else "")
+        axes[i][3].axis('off')
+        
+    plt.tight_layout()
+    plt.show()
+
 def compute_croco_loss(model, topdown_img, gripper_img, mask_ratio=0.75):
     """
     Executes the forward pass and computes the MSE loss only on the masked patches.

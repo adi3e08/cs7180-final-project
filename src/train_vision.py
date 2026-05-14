@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import sys
 from src.model import compute_croco_loss, CroCoAutoencoder
-from src.utils import normalize, get_tensor, create_patch_mask, apply_patch_mask
+from src.utils import normalize, get_tensor, create_patch_mask, apply_patch_mask, visualize_croco_predictions
 from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 import torch.nn.functional as F
@@ -228,6 +228,8 @@ def main():
         test_loss = np.array(test_loss).mean()
         print("train loss: ", train_loss, "test loss: ", test_loss)
         scheduler.step(test_loss)
+        
+        
         # writer.add_scalar('test_loss', test_loss, epoch)
         if test_loss < best_test_loss:
             torch.save({'model' : model.state_dict(),
@@ -239,6 +241,9 @@ def main():
             torch.save({'model' : model.state_dict(),
                         'optimizer' : optimizer.state_dict(), 
                         'epoch' : epoch}, os.path.join(model_dir, str(epoch)+".ckpt"))
+            print("Visualizing Reconstructions...")
+            # We just pass the last batch from the test loader into the visualizer
+            visualize_croco_predictions(model, full_topdown, gripper_pov, mask_ratio=0.75, num_samples=3)
 
 
     # writer.close()

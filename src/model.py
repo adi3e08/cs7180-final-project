@@ -248,7 +248,7 @@ class FlowMatchingModel(nn.Module):
         return a
 
 class CroCoAutoencoder(nn.Module):
-    def __init__(self, img_size=224, patch_size=16, embed_dim=512, num_heads=4, enc_depth=6, dec_depth=6):
+    def __init__(self, img_size=224, patch_size=8, embed_dim=512, num_heads=4, enc_depth=6, dec_depth=6):
         super().__init__()
         self.patch_size = patch_size
         self.num_patches = (img_size // patch_size) ** 2
@@ -256,7 +256,7 @@ class CroCoAutoencoder(nn.Module):
         # ==========================================
         # 1. PATCH EMBEDDING
         # ==========================================
-        # Shared projection to convert 16x16 image patches into 1D tokens
+        # Shared projection to convert 8x8   image patches into 1D tokens
         self.patch_embed = nn.Conv2d(3, embed_dim, kernel_size=patch_size, stride=patch_size)
         
         # Positional embeddings to retain spatial coordinates
@@ -442,37 +442,33 @@ def visualize_croco_predictions(model, topdown_img, gripper_img, mask_ratio=0.75
 
 def compute_croco_loss(model, topdown_img, gripper_img, mask_ratio=0.75):
     """
-    Executes the forward pass and computes the MSE loss only on the masked patches.
+    Computes the variance-weighted L1 loss strictly on the masked patches.
     """
     B = topdown_img.size(0)
     
-    # 1. Forward Pass
-    # reconstructed_patches shape: [B, num_patches, 3 * 16 * 16]
-    # mask_indices shape: [B, num_masked]
-    reconstructed_patches, mask_indices = model(topdown_img, gripper_img, mask_ratio=mask_ratio)
+    # 1. Forward pass: model outputs predictions strictly for the masked patches
+    # preds shape: [B, 147, 768] | mask_indices shape: [B, 147]
+    preds, mask_indices = model(topdown_img, gripper_img, mask_ratio=mask_ratio)
     
-    # 2. Prepare the Ground Truth
-    # Convert the original top-down image into patches to match the output format
-    target_patches = patchify(topdown_img, patch_size=model.patch_size)
+    # 2. Patchify the ground truth target
+    # target_patches shape: [B, 196, 768]
+    target_patches = model.patchify(topdown_img) if hasattr(model, 'patchify') else patchify(topdown_img, patch_size=model.patch_size)
     
-    # 3. Extract ONLY the masked patches
-    # We create a batch index tensor to advanced-index into the sequences
+    # 3. Calculate patch variance on the full sequence to compute weights
+    # patch_variance shape: [B, 196, 1]
+    patch_variance = target_patches.var(dim=-1, keepdim=True)
+    weight = 1.0 + (patch_variance * 10.0) # Scale up penalty for high-variance patches
+    
+    # 4. Create batch indices to properly slice the 3D tensors
+    # batch_indices shape: [B, 147]
     batch_indices = torch.arange(B, device=topdown_img.device).unsqueeze(1).expand(-1, mask_indices.size(1))
     
-    # Gather the predictions and targets for just the hidden patches
-    pred_masked = reconstructed_patches[batch_indices, mask_indices]
-    target_masked = target_patches[batch_indices, mask_indices]
+    # 5. Align targets and weights to match the masked prediction output shape
+    masked_targets = target_patches[batch_indices, mask_indices] # [B, 147, 768]
+    masked_weights = weight[batch_indices, mask_indices]         # [B, 147, 1]
     
-    # 4. Compute MSE Loss
-    # loss = F.mse_loss(pred_masked, target_masked)
-    # Inside compute_croco_loss (conceptual implementation)
-
-    # Calculate variance of each ground truth patch across its pixels
-    patch_variance = target_patches.var(dim=-1, keepdim=True) # [B, num_patches, 1]
-    weight = 1.0 + (patch_variance * 10.0) # Scale up loss for complex patches
-
-    # Apply weighted loss only to masked indices
-    raw_loss = torch.abs(pred_masked - target_masked)
-    weighted_loss = (raw_loss * weight)[batch_indices, mask_indices].mean()
+    # 6. Compute variance-weighted L1 loss strictly on the masked tokens
+    raw_loss = torch.abs(preds - masked_targets)                 # [B, 147, 768]
+    weighted_loss = (raw_loss * masked_weights).mean()
     
     return weighted_loss

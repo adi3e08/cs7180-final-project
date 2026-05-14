@@ -443,32 +443,36 @@ def visualize_croco_predictions(model, topdown_img, gripper_img, mask_ratio=0.75
 def compute_croco_loss(model, topdown_img, gripper_img, mask_ratio=0.75):
     """
     Computes the variance-weighted L1 loss strictly on the masked patches.
+    Automatically adapts whether the decoder outputs full or masked sequences.
     """
     B = topdown_img.size(0)
     
-    # 1. Forward pass: model outputs predictions strictly for the masked patches
-    # preds shape: [B, 147, 768] | mask_indices shape: [B, 147]
+    # 1. Forward pass
+    # For patch_size=8, preds might be [B, 784, 192] or [B, 588, 192]
     preds, mask_indices = model(topdown_img, gripper_img, mask_ratio=mask_ratio)
     
-    # 2. Patchify the ground truth target
-    # target_patches shape: [B, 196, 768]
+    # 2. Patchify the ground truth target -> [B, 784, 192]
     target_patches = model.patchify(topdown_img) if hasattr(model, 'patchify') else patchify(topdown_img, patch_size=model.patch_size)
     
-    # 3. Calculate patch variance on the full sequence to compute weights
-    # patch_variance shape: [B, 196, 1]
-    patch_variance = target_patches.var(dim=-1, keepdim=True)
+    # 3. Calculate patch variance to compute object-focused weights
+    patch_variance = target_patches.var(dim=-1, keepdim=True) # [B, 784, 1]
     weight = 1.0 + (patch_variance * 10.0) # Scale up penalty for high-variance patches
     
-    # 4. Create batch indices to properly slice the 3D tensors
-    # batch_indices shape: [B, 147]
+    # 4. Create batch indices for slicing
     batch_indices = torch.arange(B, device=topdown_img.device).unsqueeze(1).expand(-1, mask_indices.size(1))
     
-    # 5. Align targets and weights to match the masked prediction output shape
-    masked_targets = target_patches[batch_indices, mask_indices] # [B, 147, 768]
-    masked_weights = weight[batch_indices, mask_indices]         # [B, 147, 1]
+    # 5. Extract strictly the masked targets and weights -> [B, 588, ...]
+    masked_targets = target_patches[batch_indices, mask_indices]
+    masked_weights = weight[batch_indices, mask_indices]
     
-    # 6. Compute variance-weighted L1 loss strictly on the masked tokens
-    raw_loss = torch.abs(preds - masked_targets)                 # [B, 147, 768]
+    # 6. ROBUST ALIGNMENT: Slice preds if it returned the full sequence
+    if preds.size(1) == target_patches.size(1):
+        masked_preds = preds[batch_indices, mask_indices] # Slices 784 down to 588
+    else:
+        masked_preds = preds # Already 588
+        
+    # 7. Compute weighted L1 loss
+    raw_loss = torch.abs(masked_preds - masked_targets)
     weighted_loss = (raw_loss * masked_weights).mean()
     
     return weighted_loss
